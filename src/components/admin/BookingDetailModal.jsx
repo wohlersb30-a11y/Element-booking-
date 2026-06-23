@@ -34,11 +34,76 @@ const getBayDisplayName = (originalName) => {
   return nameMap[originalName] || originalName;
 };
 
-export default function BookingDetailModal({ booking, onClose }) {
+const toMinutes = (t) => {
+  if (!t) return 0;
+  const [h, m] = String(t).split(":").map(Number);
+  return h * 60 + (m || 0);
+};
+
+const isVIPBay = (bay) => bay?.bay_type === "vip" || /vip/i.test(bay?.name || "");
+
+const bayRank = (bay) => {
+  const match = (bay?.name || "").match(/\d+/);
+  return { vip: isVIPBay(bay) ? 1 : 0, num: match ? parseInt(match[0], 10) : 9999 };
+};
+
+export default function BookingDetailModal({ booking, onClose, simulators = [], existingBookings = [] }) {
   const [paymentStatus, setPaymentStatus] = useState(booking.payment_status || "pending");
   const [staffNotes, setStaffNotes] = useState(booking.staff_notes || "");
+  const [newBayId, setNewBayId] = useState(booking.simulator_id || "");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+
+  // Bays for the same location, ordered standard-first then VIP. This powers the
+  // manual override that lets an admin upgrade a group from a normal bay to VIP
+  // (or otherwise reassign), even though the auto-optimizer keeps bay types
+  // separate.
+  const moveableBays = [...simulators]
+    .filter((b) => b.is_active !== false && b.location === booking.location)
+    .sort((a, b) => {
+      const A = bayRank(a);
+      const B = bayRank(b);
+      if (A.vip !== B.vip) return A.vip - B.vip;
+      return A.num - B.num;
+    });
+
+  const selectedNewBay = moveableBays.find((b) => b.id === newBayId);
+  const isUpgrade = selectedNewBay && isVIPBay(selectedNewBay) && !isVIPBay({ name: booking.simulator_name });
+
+  const handleMoveBay = async () => {
+    if (!selectedNewBay || newBayId === booking.simulator_id) return;
+
+    // Conflict check on the target bay for this date/time (ignore self + cancelled).
+    const newStart = toMinutes(booking.start_time);
+    const newEnd = toMinutes(booking.end_time);
+    const conflict = (existingBookings || []).some((b) => {
+      if (b.id === booking.id) return false;
+      if (b.simulator_id !== newBayId) return false;
+      if (b.booking_date !== booking.booking_date) return false;
+      if (b.status === "cancelled") return false;
+      return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
+    });
+
+    if (conflict) {
+      alert(`${getBayDisplayName(selectedNewBay.name)} is already booked for this time. Choose another bay.`);
+      return;
+    }
+
+    setIsMoving(true);
+    try {
+      await Booking.update(booking.id, {
+        simulator_id: selectedNewBay.id,
+        simulator_name: selectedNewBay.name
+      });
+      alert(`Reservation moved to ${getBayDisplayName(selectedNewBay.name)}.`);
+      onClose();
+    } catch (error) {
+      console.error("Error moving booking:", error);
+      alert("Error moving booking to the new bay.");
+    }
+    setIsMoving(false);
+  };
 
   const handleUpdatePaymentStatus = async () => {
     setIsUpdating(true);
@@ -116,6 +181,50 @@ export default function BookingDetailModal({ booking, onClose }) {
                 <span>{booking.number_of_players || 1} player{(booking.number_of_players || 1) !== 1 ? 's' : ''}</span>
               </div>
             </div>
+
+            {/* Manual override: move / upgrade this reservation to another bay. */}
+            {moveableBays.length > 0 && booking.status !== "cancelled" && (
+              <div className="mt-4 p-3 bg-slate-50 rounded-lg space-y-2">
+                <label className="text-sm font-semibold text-slate-700">
+                  Move / Upgrade Bay
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={newBayId} onValueChange={setNewBayId}>
+                    <SelectTrigger className="w-44">
+                      <SelectValue placeholder="Choose a bay" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {moveableBays.map((bay) => (
+                        <SelectItem key={bay.id} value={bay.id}>
+                          {getBayDisplayName(bay.name)}{isVIPBay(bay) ? " - VIP" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {newBayId !== booking.simulator_id && (
+                    <Button
+                      size="sm"
+                      onClick={handleMoveBay}
+                      disabled={isMoving}
+                      className="bg-[#2d5567] hover:bg-[#1e3a47]"
+                    >
+                      {isMoving ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isUpgrade ? (
+                        "Upgrade to VIP"
+                      ) : (
+                        "Move"
+                      )}
+                    </Button>
+                  )}
+                </div>
+                {isUpgrade && (
+                  <p className="text-xs text-amber-700">
+                    Heads up: upgrading to a VIP bay does not change the price already on this booking.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Customer Info */}

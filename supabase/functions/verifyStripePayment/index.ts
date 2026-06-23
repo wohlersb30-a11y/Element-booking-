@@ -110,6 +110,8 @@ Deno.serve(async (req) => {
       status: 'confirmed',
       notes: bookingData.notes || '',
       check_in_status: 'not_arrived',
+      special_id: bookingData.specialId || null,
+      bay_locked: bookingData.bayPreference || false,
       stripe_payment_id: session.payment_intent
     }));
 

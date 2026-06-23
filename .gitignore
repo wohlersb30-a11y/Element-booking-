@@ -36,3 +36,6 @@ dist-ssr
 
 # Claude Code local (personal) settings
 .claude/settings.local.json
+
+# Supabase CLI local cache (project ref / pooler config)
+supabase/.temp/

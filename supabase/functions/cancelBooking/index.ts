@@ -1,7 +1,9 @@
 import Stripe from 'npm:stripe@14.11.0';
 import { getUserWithRole, serviceClient } from '../_shared/clients.ts';
 import { sendEmail } from '../_shared/email.ts';
+import { sendSMS } from '../_shared/sms.ts';
 import { json, preflight } from '../_shared/cors.ts';
+import { BRAND, locationInfo } from '../_shared/locations.ts';
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '');
 
@@ -66,28 +68,49 @@ Deno.serve(async (req) => {
       .select()
       .single();
 
-    // Notify the customer.
+    // Notify the customer (email + SMS).
+    const loc = locationInfo(booking.location);
     try {
       await sendEmail({
-        from_name: 'Element Indoor Golf',
+        from_name: BRAND.name,
         to: booking.customer_email,
-        subject: `Booking Cancelled - ${formatDate(booking.booking_date)}`,
+        subject: `Your tee time is cancelled \u26F3 ${formatDate(booking.booking_date)}`,
         body: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#334155;max-width:600px;margin:0 auto;padding:20px;">
-  <div style="text-align:center;padding:24px;background:linear-gradient(135deg,#2d5567,#1e3a47);color:#fff;border-radius:10px 10px 0 0;">
-    <h1 style="margin:0;font-size:24px;">Booking Cancelled</h1>
-    <p style="margin:8px 0 0;">Element Indoor Golf</p>
+  <div style="text-align:center;padding:28px;background:linear-gradient(135deg,#2d5567,#1e3a47);color:#fff;border-radius:10px 10px 0 0;">
+    <h1 style="margin:0;font-size:26px;">Booking Cancelled \u26F3</h1>
+    <p style="margin:8px 0 0;">${BRAND.name}</p>
   </div>
-  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none;">
+  <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;">
     <p>Hi ${booking.customer_name},</p>
-    <p>Your reservation for <strong>${booking.simulator_name}</strong> on <strong>${formatDate(booking.booking_date)}</strong> at <strong>${formatTime(booking.start_time)}</strong> has been cancelled.</p>
-    ${holdReleased ? '<p>The authorization hold on your card has been released.</p>' : ''}
-    <p>We hope to see you again soon — you can book any time from our site.</p>
-    <p style="margin-top:24px;">Best regards,<br/><strong>Element Indoor Golf Team</strong></p>
+    <p>No worries — we've cancelled your reservation. Here's what's no longer on the books:</p>
+    <div style="background:#f8fafc;padding:18px;border-radius:8px;margin:18px 0;">
+      <p style="margin:6px 0;"><strong>Bay:</strong> ${booking.simulator_name}</p>
+      <p style="margin:6px 0;"><strong>When:</strong> ${formatDate(booking.booking_date)} at ${formatTime(booking.start_time)}</p>
+      <p style="margin:6px 0;"><strong>Where:</strong> ${loc.label}${loc.address ? ` \u2014 ${loc.address}` : ''}</p>
+    </div>
+    ${holdReleased ? '<p>\u2705 Good news: the authorization hold on your card has been released. No charge.</p>' : ''}
+    <p>Change of plans? We get it. The fairway will be here whenever you're ready \u2014 book again any time and we'll have a bay warmed up for you.</p>
+    <p>Questions or want to rebook over the phone? Give us a ring at <strong>${BRAND.phone}</strong>.</p>
+    <p style="margin-top:24px;">Hope to see you swing by soon \u2014<br/><strong>The ${BRAND.name} Team</strong></p>
+  </div>
+  <div style="text-align:center;padding:18px;color:#64748b;font-size:13px;">
+    ${BRAND.name} \u2022 ${BRAND.phone} \u2022 ${BRAND.website}
   </div>
 </body></html>`
       });
     } catch (emailErr) {
       console.error('Cancellation email failed:', emailErr.message);
+    }
+
+    if (booking.customer_phone) {
+      try {
+        await sendSMS({
+          to: booking.customer_phone,
+          body: `\u26F3 ${BRAND.name}: Your reservation for ${booking.simulator_name} on ${formatDate(booking.booking_date)} at ${formatTime(booking.start_time)} is cancelled.${holdReleased ? ' Your card hold has been released.' : ''} Want to rebook? Call ${BRAND.phone}. Hope to see you soon!`
+        });
+      } catch (smsErr) {
+        console.error('Cancellation SMS failed:', smsErr.message);
+      }
     }
 
     // Notify active waitlist entries for this location/date that a spot opened.
@@ -105,22 +128,36 @@ Deno.serve(async (req) => {
       for (const entry of (waiting || [])) {
         try {
           await sendEmail({
-            from_name: 'Element Indoor Golf',
+            from_name: BRAND.name,
             to: entry.customer_email,
-            subject: `A spot just opened up - ${formatDate(booking.booking_date)}`,
+            subject: `A bay just opened up! \u26F3 ${formatDate(booking.booking_date)}`,
             body: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#334155;max-width:600px;margin:0 auto;padding:20px;">
-  <div style="text-align:center;padding:24px;background:linear-gradient(135deg,#2d5567,#1e3a47);color:#fff;border-radius:10px 10px 0 0;">
-    <h1 style="margin:0;font-size:24px;">A Spot Opened Up!</h1>
-    <p style="margin:8px 0 0;">Element Indoor Golf</p>
+  <div style="text-align:center;padding:28px;background:linear-gradient(135deg,#2d5567,#1e3a47);color:#fff;border-radius:10px 10px 0 0;">
+    <h1 style="margin:0;font-size:26px;">A Bay Opened Up! \u26F3</h1>
+    <p style="margin:8px 0 0;">${BRAND.name}</p>
   </div>
-  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:none;">
+  <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;">
     <p>Hi ${entry.customer_name},</p>
-    <p>Good news — a bay just became available at <strong>${booking.location}</strong> on <strong>${formatDate(booking.booking_date)}</strong> around <strong>${formatTime(booking.start_time)}</strong>, which matches your waitlist request.</p>
-    <p>Spots fill fast, so book now before someone else grabs it.</p>
-    <p style="margin-top:24px;">See you soon,<br/><strong>Element Indoor Golf Team</strong></p>
+    <p>Great news — the fairway gods smiled on you! A bay just became available that matches your waitlist request:</p>
+    <div style="background:#f8fafc;padding:18px;border-radius:8px;margin:18px 0;">
+      <p style="margin:6px 0;"><strong>Where:</strong> ${loc.label}${loc.address ? ` \u2014 ${loc.address}` : ''}</p>
+      <p style="margin:6px 0;"><strong>When:</strong> ${formatDate(booking.booking_date)} around ${formatTime(booking.start_time)}</p>
+    </div>
+    <p>\u26A1 Spots like this don't last long, so swing into action and book it before someone else grabs your tee time.</p>
+    <p>Questions or want to book over the phone? Give us a ring at <strong>${BRAND.phone}</strong>.</p>
+    <p style="margin-top:24px;">See you on the tee \u2014<br/><strong>The ${BRAND.name} Team</strong></p>
+  </div>
+  <div style="text-align:center;padding:18px;color:#64748b;font-size:13px;">
+    ${BRAND.name} \u2022 ${BRAND.phone} \u2022 ${BRAND.website}
   </div>
 </body></html>`
           });
+          if (entry.customer_phone) {
+            await sendSMS({
+              to: entry.customer_phone,
+              body: `\u26F3 ${BRAND.name}: A bay just opened up at ${loc.label} on ${formatDate(booking.booking_date)} around ${formatTime(booking.start_time)} \u2014 matching your waitlist request! Spots fill fast, grab it before someone else does. Book online or call ${BRAND.phone}.`
+            }).catch((sErr) => console.error('Waitlist SMS failed for', entry.id, sErr.message));
+          }
           await db
             .from('waitlist')
             .update({ status: 'notified', notified_at: new Date().toISOString() })

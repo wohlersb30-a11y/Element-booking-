@@ -1,5 +1,27 @@
 import { SendEmail } from "@/integrations/Core";
 
+// Customer-facing business details. Keep in sync with the edge-function copy in
+// supabase/functions/_shared/locations.ts.
+const BRAND = {
+  name: "Element Indoor Golf",
+  phone: "651-330-1699",
+  website: "www.elementindoorgolf.com"
+};
+
+const LOCATIONS = {
+  vadnais_heights: {
+    label: "Vadnais Heights",
+    address: "4255 White Bear Parkway, Suite 2100, Vadnais Heights, MN 55110"
+  },
+  burnsville: {
+    label: "Burnsville",
+    address: "14314 Burnhaven Drive, Burnsville, MN 55306"
+  }
+};
+
+const locationInfo = (location) =>
+  (location && LOCATIONS[location]) || { label: BRAND.name, address: "" };
+
 const formatTime = (time24) => {
   const [hours, minutes] = time24.split(':').map(Number);
   const period = hours >= 12 ? 'PM' : 'AM';
@@ -36,9 +58,11 @@ export async function sendBookingConfirmation(bookingData) {
     total_cost,
     number_of_players,
     payment_method,
-    notes
+    notes,
+    location
   } = bookingData;
 
+  const loc = locationInfo(location);
   const bayDisplayName = getBayDisplayName(simulator_name);
   const formattedDate = new Date(booking_date).toLocaleDateString('en-US', {
     weekday: 'long',
@@ -140,15 +164,15 @@ export async function sendBookingConfirmation(bookingData) {
 </head>
 <body>
   <div class="header">
-    <h1>🎯 Booking Confirmed!</h1>
-    <p style="margin: 10px 0 0 0;">Element Indoor Golf</p>
+    <h1>⛳ You're Booked!</h1>
+    <p style="margin: 10px 0 0 0;">${BRAND.name}</p>
   </div>
-  
+
   <div class="content">
     <p>Hi ${customer_name},</p>
-    
-    <p>Thank you for booking with Element Indoor Golf! Your reservation has been confirmed.</p>
-    
+
+    <p>Game on! Your bay is officially reserved and the simulators are already getting excited. Here's everything you need to know before you tee off:</p>
+
     <div class="booking-details">
       <h2 style="margin-top: 0; color: #2d5567;">Reservation Details</h2>
       
@@ -195,27 +219,27 @@ export async function sendBookingConfirmation(bookingData) {
     </div>
     
     <div class="important-note">
-      <strong>📍 Location:</strong><br>
-      Element Indoor Golf<br>
-      [Your Address Here]<br><br>
-      
-      <strong>⏰ Please arrive 10 minutes early</strong> to check in and get settled.
+      <strong>📍 Where to find us:</strong><br>
+      ${BRAND.name} — ${loc.label}<br>
+      ${loc.address || ''}<br><br>
+
+      <strong>⏰ Do future-you a favor and arrive 10 minutes early</strong> to check in, settle in, and maybe grab a snack before your first swing.
     </div>
-    
-    <p><strong>Questions?</strong> Feel free to call us or reply to this email.</p>
-    
-    <p>We look forward to seeing you!</p>
-    
+
+    <p><strong>Need to change or cancel?</strong> Give us a ring at <strong>${BRAND.phone}</strong> and we'll take care of you. (This inbox doesn't accept replies.)</p>
+
+    <p>Now go practice your victory dance — you're going to need it. See you on the tee! 🏌️</p>
+
     <p style="margin-top: 30px;">
-      Best regards,<br>
-      <strong>Element Indoor Golf Team</strong>
+      Game on,<br>
+      <strong>The ${BRAND.name} Team</strong>
     </p>
   </div>
-  
+
   <div class="footer">
-    <p>Element Indoor Golf | [Your Phone Number] | [Your Website]</p>
+    <p>${BRAND.name} | ${BRAND.phone} | ${BRAND.website}</p>
     <p style="font-size: 12px; color: #94a3b8;">
-      To cancel or modify your reservation, please contact us directly.
+      To cancel or modify your reservation, please call us at ${BRAND.phone}.
     </p>
   </div>
 </body>
@@ -226,7 +250,7 @@ export async function sendBookingConfirmation(bookingData) {
     await SendEmail({
       from_name: "Element Indoor Golf",
       to: customer_email,
-      subject: `Booking Confirmed - ${bayDisplayName} on ${formattedDate}`,
+      subject: `You're booked! ⛳ ${bayDisplayName} on ${formattedDate}`,
       body: emailBody
     });
     

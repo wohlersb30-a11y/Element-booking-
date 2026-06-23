@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle2, Loader2, AlertCircle, Sparkles, Shield, DollarSign } from "lucide-react";
+import { CheckCircle2, Loader2, AlertCircle, Sparkles, Shield, DollarSign, Tag } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -19,6 +19,7 @@ import AvailableBayCard from "../components/booking/AvailableBayCard";
 import BookingSummaryNew from "../components/booking/BookingSummaryNew";
 import LocationSelector from "../components/booking/LocationSelector";
 import WaitlistForm from "../components/booking/WaitlistForm";
+import SpecialsModal from "../components/booking/SpecialsModal";
 
 const calculateRate = (date, startTime, bayType, simulator) => {
   const bookingDate = new Date(date);
@@ -89,11 +90,23 @@ const calculateEndTime = (startTime, duration) => {
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 };
 
+// Treat anything flagged vip OR named "VIP ..." as a VIP bay.
+const isVIPBay = (bay) => bay.bay_type === "vip" || /vip/i.test(bay.name || "");
+
+// Sort key: standard bays before VIP, then by the number in the bay name
+// (so "Bay 2" comes before "Bay 10").
+const bayOrder = (bay) => {
+  const match = (bay.name || "").match(/\d+/);
+  return { isVIP: isVIPBay(bay), num: match ? parseInt(match[0], 10) : 9999 };
+};
+
 export default function BookSimulator() {
   const navigate = useNavigate();
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [allBays, setAllBays] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
+  const [allSpecials, setAllSpecials] = useState([]);
+  const [showSpecials, setShowSpecials] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [duration, setDuration] = useState(1);
@@ -111,6 +124,10 @@ export default function BookSimulator() {
   const [hasSearched, setHasSearched] = useState(false);
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [agreedToHold, setAgreedToHold] = useState(false);
+  // When checked, the customer wants to stay on this exact bay; the smart
+  // optimizer will never move them. Default off so we can consolidate the
+  // schedule and open up more availability.
+  const [preferBay, setPreferBay] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -125,10 +142,13 @@ export default function BookSimulator() {
         setCustomerName(currentUser.full_name);
       }
       
-      const [bays, bookings] = await Promise.all([
+      const [bays, bookings, specials] = await Promise.all([
         base44.entities.Simulator.list(),
-        base44.entities.Booking.list()
+        base44.entities.Booking.list(),
+        base44.entities.Special.list().catch(() => [])
       ]);
+
+      setAllSpecials(specials || []);
       
       const activeBays = bays.filter(b => b.is_active);
       
@@ -176,13 +196,12 @@ export default function BookSimulator() {
         };
       })
       .sort((a, b) => {
-        const aIsVIP = a.bay.bay_type === "vip";
-        const bIsVIP = b.bay.bay_type === "vip";
-        
-        if (aIsVIP && !bIsVIP) return 1;
-        if (!aIsVIP && bIsVIP) return -1;
-        
-        return a.totalCost - b.totalCost;
+        const A = bayOrder(a.bay);
+        const B = bayOrder(b.bay);
+        // Standard bays first, VIP bays last; within each group, numeric order
+        // (Bay 1, Bay 2, ... Bay 10, then VIP 1, VIP 2).
+        if (A.isVIP !== B.isVIP) return A.isVIP ? 1 : -1;
+        return A.num - B.num;
       });
     
     setAvailableBays(available);
@@ -244,7 +263,8 @@ export default function BookSimulator() {
           duration,
           playerCount,
           notes,
-          totalCost: totalBookingCost
+          totalCost: totalBookingCost,
+          bayPreference: preferBay
         },
         successUrl: `${appDomain}/PaymentSuccess?session_id={CHECKOUT_SESSION_ID}`,
         cancelUrl: `${appDomain}/BookSimulator`
@@ -272,6 +292,16 @@ export default function BookSimulator() {
   const totalBaysSelected = selectedBays.length;
   const totalBayCost = selectedBays.reduce((sum, bay) => sum + bay.totalCost, 0);
   const totalCost = totalBayCost;
+
+  // Specials currently valid for the chosen location (active + within date range).
+  const today = format(new Date(), "yyyy-MM-dd");
+  const availableSpecials = allSpecials.filter((s) => {
+    if (!s.is_active) return false;
+    if (s.location !== selectedLocation && s.location !== "both") return false;
+    if (s.valid_from && today < s.valid_from) return false;
+    if (s.valid_to && today > s.valid_to) return false;
+    return true;
+  });
 
   if (isLoading) {
     return (
@@ -331,6 +361,21 @@ export default function BookSimulator() {
               }}
             />
 
+            {selectedLocation && availableSpecials.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Button
+                  onClick={() => setShowSpecials(true)}
+                  className="w-full h-16 text-lg font-bold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-xl hover:shadow-2xl transition-all duration-300 rounded-xl"
+                >
+                  <Tag className="w-6 h-6 mr-2" />
+                  View Specials ({availableSpecials.length})
+                </Button>
+              </motion.div>
+            )}
+
             {selectedLocation && (
               <TimeSelectionForm
                 selectedDate={selectedDate}
@@ -375,18 +420,32 @@ export default function BookSimulator() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="grid gap-4 sm:gap-6">
-                      {availableBays.map(({ bay, rate, totalCost }) => (
-                        <AvailableBayCard
-                          key={bay.id}
-                          bay={bay}
-                          rate={rate}
-                          totalCost={totalCost}
-                          duration={duration}
-                          onSelect={() => handleBaySelect({ bay, rate, totalCost })}
-                          isSelected={selectedBays.some(b => b.bay.id === bay.id)} 
-                        />
-                      ))}
+                    <div className="space-y-8">
+                      {[
+                        { label: "Standard Bays", items: availableBays.filter(({ bay }) => !isVIPBay(bay)) },
+                        { label: "VIP Bays", items: availableBays.filter(({ bay }) => isVIPBay(bay)) }
+                      ]
+                        .filter((group) => group.items.length > 0)
+                        .map((group) => (
+                          <div key={group.label} className="space-y-4">
+                            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200 pb-2">
+                              {group.label} ({group.items.length})
+                            </h3>
+                            <div className="grid gap-4 sm:gap-6">
+                              {group.items.map(({ bay, rate, totalCost }) => (
+                                <AvailableBayCard
+                                  key={bay.id}
+                                  bay={bay}
+                                  rate={rate}
+                                  totalCost={totalCost}
+                                  duration={duration}
+                                  onSelect={() => handleBaySelect({ bay, rate, totalCost })}
+                                  isSelected={selectedBays.some(b => b.bay.id === bay.id)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                     </div>
                   )}
                 </CardContent>
@@ -442,10 +501,32 @@ export default function BookSimulator() {
                         </div>
                       </div>
 
+                      <div className="flex items-start space-x-3 p-4 bg-slate-50 rounded-xl border-2 border-slate-200">
+                        <Checkbox
+                          id="prefer-bay"
+                          checked={preferBay}
+                          onCheckedChange={setPreferBay}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <Label
+                            htmlFor="prefer-bay"
+                            className="text-base font-semibold text-slate-800 cursor-pointer leading-tight"
+                          >
+                            I prefer this bay
+                          </Label>
+                          <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                            Keep me on the exact bay I selected. If you leave this unchecked,
+                            we may move your reservation to a comparable open bay to fit more
+                            bookings — your date, time, duration, and price never change.
+                          </p>
+                        </div>
+                      </div>
+
                       <Alert className="bg-amber-50 border-amber-200">
                         <AlertCircle className="h-4 w-4 text-amber-600" />
                         <AlertDescription className="text-sm text-amber-800">
-                          <strong>Cancellation Policy:</strong> Free cancellation up to 24 hours before your booking. 
+                          <strong>Cancellation Policy:</strong> Free cancellation up to 24 hours before your booking.
                           The authorization hold will be released after your reservation is complete.
                         </AlertDescription>
                       </Alert>
@@ -536,6 +617,19 @@ export default function BookSimulator() {
           )}
         </div>
       </div>
+
+      {showSpecials && (
+        <SpecialsModal
+          specials={availableSpecials}
+          location={selectedLocation}
+          allBays={allBays}
+          allBookings={allBookings}
+          customerName={customerName}
+          customerEmail={customerEmail}
+          customerPhone={customerPhone}
+          onClose={() => setShowSpecials(false)}
+        />
+      )}
 
       {showWaitlist && (
         <WaitlistForm

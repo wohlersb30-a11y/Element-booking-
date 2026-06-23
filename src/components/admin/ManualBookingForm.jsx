@@ -7,10 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { X, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
 import { sendBookingConfirmation } from "../booking/BookingConfirmationEmail";
+import { sendBookingConfirmationSMS } from "../booking/BookingConfirmationSMS";
 
 const TIME_SLOTS = [
   { value: "09:00", label: "9:00 AM" },
@@ -152,7 +154,8 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     number_of_players: 1,
     payment_method: "pay_at_venue",
     payment_status: "pending",
-    notes: ""
+    notes: "",
+    bay_locked: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -248,13 +251,21 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         payment_method: formData.payment_method,
         payment_status: formData.payment_status,
         status: "confirmed",
-        notes: formData.notes
+        notes: formData.notes,
+        bay_locked: formData.bay_locked
       };
 
       await Booking.create(bookingData);
 
-      // Send confirmation email
-      await sendBookingConfirmation(bookingData);
+      // Send confirmation email + SMS (best-effort; don't block on delivery).
+      await Promise.all([
+        sendBookingConfirmation(bookingData).catch((err) =>
+          console.error("Confirmation email failed:", err)
+        ),
+        sendBookingConfirmationSMS(bookingData).catch((err) =>
+          console.error("Confirmation SMS failed:", err)
+        )
+      ]);
 
       onComplete();
     } catch (error) {
@@ -433,6 +444,25 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
             onChange={(e) => setFormData({...formData, notes: e.target.value})}
             rows={3}
           />
+        </div>
+
+        {/* Bay preference (lock) */}
+        <div className="flex items-start space-x-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+          <Checkbox
+            id="bay-locked"
+            checked={formData.bay_locked}
+            onCheckedChange={(checked) => setFormData({ ...formData, bay_locked: !!checked })}
+            className="mt-1"
+          />
+          <div className="flex-1">
+            <Label htmlFor="bay-locked" className="font-semibold text-slate-800 cursor-pointer">
+              Customer prefers this bay
+            </Label>
+            <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+              Lock this reservation to the selected bay. When checked, the Smart
+              Schedule Optimizer will never move it to a different bay.
+            </p>
+          </div>
         </div>
 
         {/* Total Cost Display */}

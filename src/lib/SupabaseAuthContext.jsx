@@ -11,44 +11,77 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
-
-  const loadProfile = async (sessionUser) => {
-    if (!sessionUser) {
-      setUser(null);
-      setIsAuthenticated(false);
-      setAuthError({ type: 'auth_required', message: 'Authentication required' });
-      return;
-    }
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', sessionUser.id)
-      .single();
-
-    setUser({
-      id: sessionUser.id,
-      email: sessionUser.email,
-      full_name: profile?.full_name || sessionUser.user_metadata?.full_name || '',
-      phone: profile?.phone || '',
-      role: profile?.role || 'customer'
-    });
-    setIsAuthenticated(true);
-    setAuthError(null);
-  };
+  // True once the profile (and thus the real role) has been resolved, so the
+  // admin gate never decides before the role is known.
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Apply auth state synchronously from the session. IMPORTANT: do NOT await
+    // Supabase DB calls here — running them inside onAuthStateChange deadlocks
+    // the auth lock and the app hangs on the spinner. We set the user from the
+    // session immediately, then fetch the profile role separately.
+    const applySession = (session) => {
       if (!active) return;
-      await loadProfile(session?.user ?? null);
+      const sessionUser = session?.user ?? null;
+
+      if (!sessionUser) {
+        setUser(null);
+        setIsAuthenticated(false);
+        setAuthError({ type: 'auth_required', message: 'Authentication required' });
+        setIsLoadingAuth(false);
+        setProfileLoaded(true);
+        return;
+      }
+
+      setUser({
+        id: sessionUser.id,
+        email: sessionUser.email,
+        full_name: sessionUser.user_metadata?.full_name || '',
+        phone: '',
+        role: 'customer' // refined by fetchProfileRole() below
+      });
+      setIsAuthenticated(true);
+      setAuthError(null);
       setIsLoadingAuth(false);
-    });
+      fetchProfileRole(sessionUser.id);
+    };
+
+    // Separate, non-blocking profile fetch (runs outside the auth callback).
+    const fetchProfileRole = async (userId) => {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, phone, role')
+          .eq('id', userId)
+          .single();
+        if (!active) return;
+        if (profile) {
+          setUser((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  full_name: profile.full_name || prev.full_name,
+                  phone: profile.phone || '',
+                  role: profile.role || 'customer'
+                }
+              : prev
+          );
+        }
+      } catch {
+        // Non-fatal: keep the default 'customer' role.
+      } finally {
+        if (active) setProfileLoaded(true);
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => applySession(session));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        await loadProfile(session?.user ?? null);
-        setIsLoadingAuth(false);
+      (_event, session) => {
+        // Defer out of the auth callback to avoid the deadlock footgun.
+        setTimeout(() => applySession(session), 0);
       }
     );
 
@@ -93,6 +126,7 @@ export const AuthProvider = ({ children }) => {
         isLoadingPublicSettings: false, // kept for API compatibility with App.jsx
         authError,
         isAdmin: user?.role === 'admin',
+        profileLoaded,
         login,
         signup,
         logout,

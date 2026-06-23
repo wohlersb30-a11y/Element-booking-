@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { Booking, Simulator, User, ScheduleBlock } from "@/entities/all";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Plus, Loader2, Users, Ban, DollarSignIcon, BarChart3 } from "lucide-react";
+import { Calendar, Plus, Loader2, Users, Ban, DollarSignIcon, BarChart3, Tag, Sparkles } from "lucide-react";
 import { format, addDays, subDays } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -16,6 +16,9 @@ import ManualBookingForm from "../components/admin/ManualBookingForm";
 import BookingDetailModal from "../components/admin/BookingDetailModal";
 import BlockScheduleForm from "../components/admin/BlockScheduleForm";
 import PricingManager from "../components/admin/PricingManager";
+import SpecialsManager from "../components/admin/SpecialsManager";
+import SmartScheduleOptimizer from "../components/admin/SmartScheduleOptimizer";
+import LocationSwitcher from "../components/admin/LocationSwitcher";
 import CustomerLookup from "../components/admin/CustomerLookup";
 import DailyReportSummary from "../components/admin/DailyReportSummary";
 
@@ -29,6 +32,8 @@ export default function AdminDashboardBurnsville() {
   const [showManualBooking, setShowManualBooking] = useState(false);
   const [showBlockForm, setShowBlockForm] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
+  const [showSpecials, setShowSpecials] = useState(false);
+  const [showOptimizer, setShowOptimizer] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [preselectedBay, setPreselectedBay] = useState(null);
   const [preselectedTime, setPreselectedTime] = useState(null);
@@ -197,7 +202,8 @@ export default function AdminDashboardBurnsville() {
                 <h1 className="text-3xl sm:text-4xl font-bold text-slate-800 mb-2">
                   Burnsville Dashboard
                 </h1>
-                <p className="text-slate-600">Manage bookings and view daily schedule</p>
+                <p className="text-slate-600 mb-3">Manage bookings and view daily schedule</p>
+                <LocationSwitcher current="burnsville" />
               </div>
               <div className="flex gap-2 flex-wrap">
                 <Button
@@ -223,6 +229,22 @@ export default function AdminDashboardBurnsville() {
                 >
                   <DollarSignIcon className="w-5 h-5 mr-2" />
                   Pricing
+                </Button>
+                <Button
+                  onClick={() => setShowSpecials(true)}
+                  variant="outline"
+                  className="h-12 px-4 border-amber-300 text-amber-700 hover:bg-amber-50"
+                >
+                  <Tag className="w-5 h-5 mr-2" />
+                  Specials
+                </Button>
+                <Button
+                  onClick={() => setShowOptimizer(true)}
+                  variant="outline"
+                  className="h-12 px-4 border-[#2d5567]/40 text-[#2d5567] hover:bg-[#2d5567]/10"
+                >
+                  <Sparkles className="w-5 h-5 mr-2" />
+                  Optimize
                 </Button>
                 <Button
                   onClick={() => setShowBlockForm(true)}
@@ -359,10 +381,35 @@ export default function AdminDashboardBurnsville() {
           </div>
         )}
 
+        {showSpecials && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+              <SpecialsManager
+                defaultLocation="burnsville"
+                onClose={() => setShowSpecials(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        {showOptimizer && (
+          <SmartScheduleOptimizer
+            date={selectedDate}
+            location="burnsville"
+            bookings={bookings}
+            blocks={blocks}
+            simulators={simulators}
+            onClose={() => setShowOptimizer(false)}
+            onApplied={loadBookingsForDate}
+          />
+        )}
+
         {selectedBooking && (
           <BookingDetailModal
             booking={selectedBooking}
             onClose={handleCloseModal}
+            simulators={simulators}
+            existingBookings={bookings}
           />
         )}
 

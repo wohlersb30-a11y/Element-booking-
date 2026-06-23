@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users } from "lucide-react";
+import { Users, Lock } from "lucide-react";
 import { Booking } from "@/entities/Booking";
 import {
   AlertDialog,
@@ -391,8 +391,16 @@ export default function DailyScheduleView({
                                                     }`}
                                                     onClick={() => onBookingClick(booking)}
                                                   >
-                                                    <div className="absolute inset-0 bg-yellow-400 text-slate-900 p-2 overflow-hidden flex flex-col justify-center border-l-4 border-yellow-600 hover:bg-yellow-500 transition-colors">
-                                                      <div className="text-[11px] font-bold truncate">{first} {last}</div>
+                                                    <div className={`absolute inset-0 bg-yellow-400 text-slate-900 p-2 overflow-hidden flex flex-col justify-center hover:bg-yellow-500 transition-colors ${booking.bay_locked ? 'border-l-4 border-emerald-600' : 'border-l-4 border-yellow-600'}`}>
+                                                      {booking.bay_locked && (
+                                                        <div
+                                                          className="absolute top-1 right-1 text-emerald-700"
+                                                          title="Customer prefers this bay — the optimizer won't move it"
+                                                        >
+                                                          <Lock className="w-3 h-3" />
+                                                        </div>
+                                                      )}
+                                                      <div className="text-[11px] font-bold truncate pr-3">{first} {last}</div>
                                                       <div className="text-[10px] opacity-80 truncate">{booking.customer_phone}</div>
                                                       <div className="flex items-center gap-1 mt-0.5">
                                                         <Users className="w-3 h-3" />

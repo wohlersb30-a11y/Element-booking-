@@ -3,7 +3,7 @@ import { Booking, Simulator, User, ScheduleBlock } from "@/entities/all";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Plus, Loader2, Users, DollarSign, Ban, DollarSignIcon, BarChart3 } from "lucide-react";
+import { Calendar, Plus, Loader2, Users, DollarSign, Ban, DollarSignIcon, BarChart3, Tag } from "lucide-react";
 import { format, addDays, subDays } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -14,6 +14,7 @@ import ManualBookingForm from "../components/admin/ManualBookingForm";
 import BookingDetailModal from "../components/admin/BookingDetailModal";
 import BlockScheduleForm from "../components/admin/BlockScheduleForm";
 import PricingManager from "../components/admin/PricingManager";
+import SpecialsManager from "../components/admin/SpecialsManager";
 import AdminAnalytics from "../components/admin/AdminAnalytics";
 
 export default function AdminDashboard() {
@@ -26,6 +27,7 @@ export default function AdminDashboard() {
   const [showManualBooking, setShowManualBooking] = useState(false);
   const [showBlockForm, setShowBlockForm] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
+  const [showSpecials, setShowSpecials] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [preselectedBay, setPreselectedBay] = useState(null);
   const [preselectedTime, setPreselectedTime] = useState(null);
@@ -205,6 +207,14 @@ export default function AdminDashboard() {
                   Pricing
                 </Button>
                 <Button
+                  onClick={() => setShowSpecials(true)}
+                  variant="outline"
+                  className="h-12 px-4 border-amber-300 text-amber-700 hover:bg-amber-50"
+                >
+                  <Tag className="w-5 h-5 mr-2" />
+                  Specials
+                </Button>
+                <Button
                   onClick={() => setShowBlockForm(true)}
                   variant="outline"
                   className="h-12 px-4"
@@ -371,6 +381,17 @@ export default function AdminDashboard() {
                   setShowPricing(false);
                   loadData();
                 }}
+              />
+            </div>
+          </div>
+        )}
+
+        {showSpecials && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+              <SpecialsManager
+                defaultLocation="vadnais_heights"
+                onClose={() => setShowSpecials(false)}
               />
             </div>
           </div>

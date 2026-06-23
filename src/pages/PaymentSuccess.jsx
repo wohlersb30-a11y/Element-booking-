@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { sendBookingConfirmation } from "@/components/booking/BookingConfirmationEmail";
+import { sendBookingConfirmationSMS } from "@/components/booking/BookingConfirmationSMS";
 
 export default function PaymentSuccess() {
   const navigate = useNavigate();
@@ -47,15 +48,18 @@ export default function PaymentSuccess() {
         setStatus("success");
         setMessage("Your booking has been confirmed!");
 
-        // Send a confirmation email for each booked bay. Best-effort: never
-        // block the success UI on email delivery.
+        // Send a confirmation email + SMS for each booked bay. Best-effort:
+        // never block the success UI on message delivery.
         const bookings = result.data.bookings || [];
         await Promise.all(
-          bookings.map((b) =>
+          bookings.flatMap((b) => [
             sendBookingConfirmation(b).catch((err) =>
               console.error("Confirmation email failed:", err)
+            ),
+            sendBookingConfirmationSMS(b).catch((err) =>
+              console.error("Confirmation SMS failed:", err)
             )
-          )
+          ])
         );
 
         setTimeout(() => {
