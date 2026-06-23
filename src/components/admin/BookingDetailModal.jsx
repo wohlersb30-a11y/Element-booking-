@@ -1,6 +1,7 @@
 
 import React, { useState } from "react";
 import { Booking } from "@/entities/all";
+import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -54,6 +55,46 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   const [isUpdating, setIsUpdating] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isCharging, setIsCharging] = useState(false);
+
+  // A capturable hold exists when the booking has a Stripe payment id and hasn't
+  // already been charged or refunded.
+  const hasCapturableHold =
+    !!booking.stripe_payment_id &&
+    paymentStatus !== "paid" &&
+    paymentStatus !== "refunded";
+
+  // One-click charge of the card-on-file authorization hold (customer chose to
+  // pay by card, or it's a no-show). Backed by the admin-only captureStripeHold
+  // edge function.
+  const handleProcessPayment = async () => {
+    if (
+      !confirm(
+        `Charge this customer's card on file for $${Number(booking.total_cost).toFixed(2)}?\n\nThis captures the authorization hold and cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setIsCharging(true);
+    try {
+      const result = await base44.functions.invoke("captureStripeHold", {
+        bookingId: booking.id
+      });
+
+      if (result?.data?.success) {
+        setPaymentStatus("paid");
+        const amt = result.data.amountCaptured ?? Number(booking.total_cost);
+        alert(`Payment processed. Charged $${Number(amt).toFixed(2)} to the card on file.`);
+      } else {
+        alert(`Could not process payment: ${result?.data?.error || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Error processing payment:", error);
+      alert("Error processing payment. Please try again.");
+    }
+    setIsCharging(false);
+  };
 
   // Bays for the same location, ordered standard-first then VIP. This powers the
   // manual override that lets an admin upgrade a group from a normal bay to VIP
@@ -283,6 +324,32 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                 <div className="flex items-center gap-3 text-slate-700">
                   <CreditCard className="w-5 h-5 text-[#2d5567]" />
                   <span>Card ending in ****{booking.card_last_four}</span>
+                </div>
+              )}
+
+              {/* One-click charge of the card-on-file hold (pay-by-card or no-show). */}
+              {hasCapturableHold && booking.status !== "cancelled" && (
+                <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-lg space-y-2">
+                  <p className="text-sm text-amber-900 font-medium">
+                    A card hold is on file. Charge it if the customer wants to pay by card, or for a no-show.
+                  </p>
+                  <Button
+                    onClick={handleProcessPayment}
+                    disabled={isCharging}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-base font-semibold"
+                  >
+                    {isCharging ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Process Payment — ${Number(booking.total_cost).toFixed(2)}
+                      </>
+                    )}
+                  </Button>
                 </div>
               )}
 

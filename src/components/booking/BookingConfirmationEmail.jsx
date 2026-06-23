@@ -215,9 +215,19 @@ export async function sendBookingConfirmation(bookingData) {
     </div>
     
     <div class="total">
-      Total: $${total_cost.toFixed(2)}
+      Authorization Hold: $${total_cost.toFixed(2)}
+      <div style="font-size:13px;font-weight:normal;opacity:0.9;margin-top:6px;">not charged — see below</div>
     </div>
-    
+
+    <div style="background:#ecfdf5;border:2px solid #10b981;border-radius:8px;padding:18px;margin:20px 0;text-align:center;">
+      <p style="margin:0;font-size:18px;font-weight:bold;color:#065f46;">💳 You haven't been charged.</p>
+      <p style="margin:8px 0 0;color:#065f46;font-size:14px;line-height:1.5;">
+        We've only placed a temporary <strong>hold</strong> on your card to reserve your bay.
+        Pay in person when you arrive — and feel free to split the bill with your group however you like!
+        The hold is released after your reservation, and is only charged if you no-show or cancel within 24 hours.
+      </p>
+    </div>
+
     <div class="important-note">
       <strong>📍 Where to find us:</strong><br>
       ${BRAND.name} — ${loc.label}<br>

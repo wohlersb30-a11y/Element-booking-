@@ -473,10 +473,25 @@ export default function BookSimulator() {
                   </div>
                   <CardContent className="p-6">
                     <div className="space-y-4">
+                      {/* Unmissable: this is an authorization hold, NOT a charge. */}
+                      <div className="rounded-xl border-2 border-emerald-500 bg-emerald-50 p-5 text-center">
+                        <p className="text-xl sm:text-2xl font-extrabold text-emerald-800 leading-tight">
+                          You will NOT be charged today
+                        </p>
+                        <p className="mt-2 text-base font-semibold text-emerald-900">
+                          We only place a temporary <span className="underline">authorization hold</span> on your card to reserve your bay.
+                          Pay in person when you arrive — split the bill however you like.
+                        </p>
+                        <p className="mt-2 text-sm text-emerald-800">
+                          The hold is automatically released after your reservation. It's only charged if you no-show
+                          or cancel within 24 hours.
+                        </p>
+                      </div>
+
                       <Alert className="bg-blue-50 border-blue-200">
                         <DollarSign className="h-5 w-5 text-blue-600 flex-shrink-0" />
                         <AlertDescription className="text-blue-800 text-base font-medium">
-                          Total Amount: <span className="font-bold text-xl">${totalBayCost.toFixed(2)}</span>
+                          Authorization hold (not a charge): <span className="font-bold text-xl">${totalBayCost.toFixed(2)}</span>
                         </AlertDescription>
                       </Alert>
 
@@ -495,8 +510,9 @@ export default function BookSimulator() {
                             Place credit card hold
                           </Label>
                           <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                            This is just a hold on your card. You can pay at the venue following your reservation. 
-                            The hold will only be charged if you violate our 24-hour cancellation policy or fail to show up.
+                            <strong>This is just a hold — not a payment.</strong> You pay at the venue after your
+                            reservation, and you're welcome to split the bill with your group. The hold is only ever
+                            charged if you violate our 24-hour cancellation policy or fail to show up.
                           </p>
                         </div>
                       </div>
