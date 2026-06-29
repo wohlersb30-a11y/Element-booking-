@@ -25,6 +25,11 @@ const TIME_SLOTS_SUNDAY = [
   "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"
 ];
 
+// Width (px) of one hour column. Half-hour cells and booking spans derive
+// from this so the header, body, and "now" line always stay aligned.
+const HOUR_WIDTH = 80;
+const HALF_WIDTH = HOUR_WIDTH / 2;
+
 const formatTimeTo12Hour = (time24) => {
   const [hours, minutes] = time24.split(':').map(Number);
   const period = hours >= 12 ? 'PM' : 'AM';
@@ -145,7 +150,7 @@ export default function DailyScheduleView({
       const maxHour = isSunday ? 22 : 23;
       if (hours >= 9 && hours < maxHour) {
         const totalMinutes = (hours - 9) * 60 + minutes;
-        setCurrentTimePosition(totalMinutes);
+        setCurrentTimePosition(totalMinutes * (HOUR_WIDTH / 60));
       } else {
         setCurrentTimePosition(null);
       }
@@ -310,14 +315,14 @@ export default function DailyScheduleView({
                 </div>
               )}
 
-              <table className="w-full border-collapse">
+              <table className="border-collapse" style={{ width: 'max-content' }}>
                 <thead>
                   <tr>
                     <th className="sticky left-0 z-20 p-2 font-semibold text-xs border-r border-b bg-slate-50 text-left min-w-[80px]">
                       Bay
                     </th>
                     {TIME_SLOTS.map(time => (
-                      <th key={time} className="p-2 text-center font-semibold text-xs bg-slate-50 border-r border-b min-w-[60px]">
+                      <th key={time} className="p-2 text-center font-semibold text-xs bg-slate-50 border-r border-b" style={{ width: `${HOUR_WIDTH}px`, minWidth: `${HOUR_WIDTH}px` }}>
                         {formatTimeTo12Hour(time)}
                       </th>
                     ))}
@@ -344,7 +349,7 @@ export default function DailyScheduleView({
                               const halfHourSlots = generateHalfHourSlots(slotHour);
 
                               return (
-                                <div key={timeSlot} className="flex" style={{ width: '60px', minWidth: '60px' }}>
+                                <div key={timeSlot} className="flex" style={{ width: `${HOUR_WIDTH}px`, minWidth: `${HOUR_WIDTH}px` }}>
                                   {halfHourSlots.map((halfSlot, index) => {
                                     if (renderedSlots.has(halfSlot)) {
                                       return null;
@@ -377,7 +382,7 @@ export default function DailyScheduleView({
                                             <div
                                               ref={provided.innerRef}
                                               {...provided.droppableProps}
-                                              style={{ width: `${span * 60}px`, minWidth: `${span * 60}px`, position: 'relative' }}
+                                              style={{ width: `${span * HOUR_WIDTH}px`, minWidth: `${span * HOUR_WIDTH}px`, position: 'relative' }}
                                               className={isHourMark ? 'border-l-2 border-l-slate-400' : ''}
                                             >
                                               <Draggable draggableId={booking.id} index={0}>
@@ -436,8 +441,8 @@ export default function DailyScheduleView({
                                           key={`block-${bay.id}-${halfSlot}`}
                                           className={`relative border-r border-b min-h-[60px] ${isHourMark ? 'border-l-2 border-l-slate-400' : ''}`}
                                           style={{
-                                            width: `${span * 60}px`,
-                                            minWidth: `${span * 60}px`
+                                            width: `${span * HOUR_WIDTH}px`,
+                                            minWidth: `${span * HOUR_WIDTH}px`
                                           }}
                                         >
                                           <div className="absolute inset-0 bg-slate-400 text-white p-2 overflow-hidden flex flex-col justify-center">
@@ -461,7 +466,7 @@ export default function DailyScheduleView({
                                             className={`border-r border-b min-h-[60px] hover:bg-emerald-50 cursor-pointer relative group transition-colors ${
                                               snapshot.isDraggingOver ? 'bg-emerald-100' : ''
                                             } ${isHourMark ? 'border-l-2 border-l-slate-400' : 'border-l border-l-slate-300'}`}
-                                            style={{ width: '30px', minWidth: '30px' }}
+                                            style={{ width: `${HALF_WIDTH}px`, minWidth: `${HALF_WIDTH}px` }}
                                             onClick={() => onTimeSlotClick(bay, halfSlot)}
                                           >
                                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">

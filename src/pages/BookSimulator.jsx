@@ -1,12 +1,12 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle2, Loader2, AlertCircle, Sparkles, Shield, DollarSign, Tag } from "lucide-react";
+import { CheckCircle2, Loader2, AlertCircle, Sparkles, Shield, DollarSign, Tag, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -90,13 +90,50 @@ const calculateEndTime = (startTime, duration) => {
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 };
 
+// --- time helpers for the "closest available slot" search ---
+const toMinutes = (hhmm) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+};
+const toHHMM = (mins) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+// Human-friendly 12-hour label, e.g. "6:30 PM".
+const formatTimeLabel = (hhmm) => {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+};
+
+// Maps the raw DB bay names to the customer-facing "Bay N" labels so that
+// ordering follows what the customer actually sees (Bay 1..9), not the raw
+// East/West/South/North suffix numbers. Keep in sync with AvailableBayCard.
+const BAY_DISPLAY_MAP = {
+  "East 1": "Bay 1",
+  "East 2": "Bay 2",
+  "West 1": "Bay 3",
+  "West 2": "Bay 4",
+  "West 3": "Bay 5",
+  "South 1": "Bay 6",
+  "South 2": "Bay 7",
+  "North 1": "Bay 8",
+  "North 2": "Bay 9",
+  "VIP 1": "VIP 1",
+  "VIP 2": "VIP 2"
+};
+const getBayDisplayName = (name) => BAY_DISPLAY_MAP[name] || name || "";
+
 // Treat anything flagged vip OR named "VIP ..." as a VIP bay.
 const isVIPBay = (bay) => bay.bay_type === "vip" || /vip/i.test(bay.name || "");
 
-// Sort key: standard bays before VIP, then by the number in the bay name
-// (so "Bay 2" comes before "Bay 10").
+// Sort key: standard bays before VIP, then by the number in the DISPLAY name
+// (so the customer sees Bay 1, Bay 2, ... Bay 9 in order, then VIP 1, VIP 2).
 const bayOrder = (bay) => {
-  const match = (bay.name || "").match(/\d+/);
+  const match = getBayDisplayName(bay.name).match(/\d+/);
   return { isVIP: isVIPBay(bay), num: match ? parseInt(match[0], 10) : 9999 };
 };
 
@@ -109,6 +146,10 @@ export default function BookSimulator() {
   const [showSpecials, setShowSpecials] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
+  // The time we actually found availability for. Equals selectedTime when the
+  // exact requested slot is open; otherwise it's the closest available start.
+  const [bookingTime, setBookingTime] = useState(null);
+  const [timeAdjusted, setTimeAdjusted] = useState(false);
   const [duration, setDuration] = useState(1);
   const [playerCount, setPlayerCount] = useState(1);
   const [notes, setNotes] = useState("");
@@ -128,6 +169,18 @@ export default function BookSimulator() {
   // optimizer will never move them. Default off so we can consolidate the
   // schedule and open up more availability.
   const [preferBay, setPreferBay] = useState(false);
+  // Popup shown right after a bay is selected, asking the customer whether they
+  // want to add more bays or jump straight to the booking details.
+  const [showBayChoice, setShowBayChoice] = useState(false);
+  // Lets us jump the customer straight to the booking details once they pick a
+  // bay, instead of forcing them to scroll past the whole list of bay cards.
+  const detailsRef = useRef(null);
+
+  const scrollToDetails = () => {
+    setTimeout(() => {
+      detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  };
 
   useEffect(() => {
     loadData();
@@ -175,35 +228,73 @@ export default function BookSimulator() {
 
   const handleSearch = async () => {
     if (!selectedDate || !selectedTime || !selectedLocation) return;
-    
+
     setIsSearching(true);
     setHasSearched(true);
     setSelectedBays([]);
     setShowWaitlist(false);
-    
+    setTimeAdjusted(false);
+
     const formattedDate = format(selectedDate, "yyyy-MM-dd");
-    
     const locationBays = allBays.filter(bay => bay.location === selectedLocation);
 
-    const available = locationBays
-      .filter(bay => isBayAvailable(bay, formattedDate, selectedTime, duration, allBookings))
-      .map(bay => {
-        const rate = calculateRate(formattedDate, selectedTime, bay.bay_type, bay);
-        return {
-          bay,
-          rate,
-          totalCost: rate * duration
-        };
-      })
-      .sort((a, b) => {
-        const A = bayOrder(a.bay);
-        const B = bayOrder(b.bay);
-        // Standard bays first, VIP bays last; within each group, numeric order
-        // (Bay 1, Bay 2, ... Bay 10, then VIP 1, VIP 2).
-        if (A.isVIP !== B.isVIP) return A.isVIP ? 1 : -1;
-        return A.num - B.num;
-      });
-    
+    // Returns the available bays (sorted Bay 1..9 then VIP) for a given start time.
+    const findAvailableAt = (startTime) =>
+      locationBays
+        .filter(bay => isBayAvailable(bay, formattedDate, startTime, duration, allBookings))
+        .map(bay => {
+          const rate = calculateRate(formattedDate, startTime, bay.bay_type, bay);
+          return { bay, rate, totalCost: rate * duration };
+        })
+        .sort((a, b) => {
+          const A = bayOrder(a.bay);
+          const B = bayOrder(b.bay);
+          if (A.isVIP !== B.isVIP) return A.isVIP ? 1 : -1;
+          return A.num - B.num;
+        });
+
+    // Operating hours: open 9:00; close 23:00 (21:00 on Sundays). A slot must
+    // fully fit inside those hours.
+    const isSunday = selectedDate.getDay() === 0;
+    const openMin = 9 * 60;
+    const closeMin = (isSunday ? 21 : 23) * 60;
+    const durMin = Math.round(duration * 60);
+    const reqMin = toMinutes(selectedTime);
+
+    // Don't suggest times that have already passed when booking for today.
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const nowMin = formattedDate === todayStr
+      ? new Date().getHours() * 60 + new Date().getMinutes()
+      : -1;
+
+    // 1) Try the exact requested time first.
+    let chosenTime = selectedTime;
+    let available = findAvailableAt(selectedTime);
+
+    // 2) If the exact slot is full, walk outward (30-min steps) to the nearest
+    //    start time that has at least one open bay, staying within hours.
+    if (available.length === 0) {
+      const candidates = [];
+      for (let t = openMin; t + durMin <= closeMin; t += 30) {
+        if (t === reqMin) continue;        // already tried the exact time
+        if (t < nowMin) continue;          // skip past times for today
+        candidates.push(t);
+      }
+      // Closest to the requested time first; ties favor the earlier slot.
+      candidates.sort((a, b) => Math.abs(a - reqMin) - Math.abs(b - reqMin) || a - b);
+
+      for (const t of candidates) {
+        const found = findAvailableAt(toHHMM(t));
+        if (found.length > 0) {
+          chosenTime = toHHMM(t);
+          available = found;
+          break;
+        }
+      }
+    }
+
+    setBookingTime(chosenTime);
+    setTimeAdjusted(available.length > 0 && chosenTime !== selectedTime);
     setAvailableBays(available);
     setIsSearching(false);
   };
@@ -211,11 +302,15 @@ export default function BookSimulator() {
   const handleBaySelect = (bayInfo) => {
     setSelectedBays(prev => {
       const isAlreadySelected = prev.some(b => b.bay.id === bayInfo.bay.id);
-      if (isAlreadySelected) {
-        return prev.filter(b => b.bay.id !== bayInfo.bay.id);
-      } else {
-        return [...prev, { ...bayInfo, quantity: 1 }];
+      const next = isAlreadySelected
+        ? prev.filter(b => b.bay.id !== bayInfo.bay.id)
+        : [...prev, { ...bayInfo, quantity: 1 }];
+      // A bay was just ADDED -> ask whether they want more bays or to continue,
+      // so they don't have to scroll past the rest of the available bays.
+      if (!isAlreadySelected) {
+        setShowBayChoice(true);
       }
+      return next;
     });
   };
 
@@ -235,9 +330,12 @@ export default function BookSimulator() {
     setIsSubmitting(true);
     
     try {
+      // Book the time we actually found availability for (may differ from the
+      // exact time the customer originally typed in).
+      const effectiveTime = bookingTime || selectedTime;
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
-      const endTime = calculateEndTime(selectedTime, duration);
-      
+      const endTime = calculateEndTime(effectiveTime, duration);
+
       const totalBookingCost = selectedBays.reduce((sum, bay) => sum + bay.totalCost, 0);
 
       // Use the actual app domain for success/cancel URLs
@@ -258,7 +356,7 @@ export default function BookSimulator() {
           customerEmail,
           customerPhone,
           date: formattedDate,
-          time: selectedTime,
+          time: effectiveTime,
           endTime,
           duration,
           playerCount,
@@ -292,6 +390,11 @@ export default function BookSimulator() {
   const totalBaysSelected = selectedBays.length;
   const totalBayCost = selectedBays.reduce((sum, bay) => sum + bay.totalCost, 0);
   const totalCost = totalBayCost;
+
+  // The time the customer is actually booking (closest available if their exact
+  // time was full) and its matching end time, for clear on-screen display.
+  const effectiveTime = bookingTime || selectedTime;
+  const effectiveEndTime = effectiveTime ? calculateEndTime(effectiveTime, duration) : "";
 
   // Specials currently valid for the chosen location (active + within date range).
   const today = format(new Date(), "yyyy-MM-dd");
@@ -358,6 +461,8 @@ export default function BookSimulator() {
                 setSelectedBays([]);
                 setHasSearched(false);
                 setShowWaitlist(false);
+                setTimeAdjusted(false);
+                setBookingTime(null);
               }}
             />
 
@@ -407,11 +512,21 @@ export default function BookSimulator() {
                   <p className="text-blue-50 mt-2">Click to select one or more bays</p>
                 </div>
                 <CardContent className="p-6">
+                  {timeAdjusted && availableBays.length > 0 && (
+                    <Alert className="mb-6 bg-amber-50 border-2 border-amber-300">
+                      <Clock className="h-5 w-5 text-amber-600" />
+                      <AlertDescription className="text-amber-900 text-base">
+                        Your requested <strong>{formatTimeLabel(selectedTime)}</strong> wasn't available, so we found
+                        the closest opening at <strong className="text-lg">{formatTimeLabel(effectiveTime)}</strong>
+                        {" "}(ends {formatTimeLabel(effectiveEndTime)}). The bays below are for this time — pick one to continue.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   {availableBays.length === 0 ? (
                     <div className="text-center py-12">
                       <AlertCircle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
                       <p className="text-slate-700 text-xl font-semibold mb-2">No bays available</p>
-                      <p className="text-slate-500 mb-6">Try a different time or date, or join the waitlist and we'll notify you if a spot opens up.</p>
+                      <p className="text-slate-500 mb-6">We checked your requested time and the closest openings, but everything's booked for that day and duration. Try a different date or a shorter duration, or join the waitlist and we'll notify you if a spot opens up.</p>
                       <Button
                         onClick={() => setShowWaitlist(true)}
                         className="bg-[#2d5567] hover:bg-[#1e3a47] text-white font-semibold rounded-xl"
@@ -453,7 +568,26 @@ export default function BookSimulator() {
             )}
 
             {totalBaysSelected > 0 && selectedLocation && (
-              <>
+              <div ref={detailsRef} className="space-y-6 sm:space-y-8 scroll-mt-6">
+                {/* Always show the customer the exact date/time they're booking,
+                    and flag it if it differs from what they originally requested. */}
+                <Card className={`border-2 shadow-lg ${timeAdjusted ? "bg-amber-50 border-amber-300" : "bg-white/90 border-[#2d5567]/20"}`}>
+                  <CardContent className="p-4 sm:p-5 flex items-start gap-3">
+                    <Clock className={`w-6 h-6 flex-shrink-0 ${timeAdjusted ? "text-amber-600" : "text-[#2d5567]"}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">You're booking</p>
+                      <p className="text-lg sm:text-xl font-black text-slate-800">
+                        {selectedDate ? format(selectedDate, "EEE, MMM d") : ""} · {formatTimeLabel(effectiveTime)} – {formatTimeLabel(effectiveEndTime)}
+                      </p>
+                      {timeAdjusted && (
+                        <p className="text-sm font-semibold text-amber-800 mt-1">
+                          Adjusted from your requested {formatTimeLabel(selectedTime)} — this was the closest opening.
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
                 <PlayerCountInput
                   playerCount={playerCount}
                   onChange={setPlayerCount}
@@ -613,7 +747,7 @@ export default function BookSimulator() {
                     </form>
                   </CardContent>
                 </Card>
-              </>
+              </div>
             )}
           </div>
 
@@ -622,7 +756,7 @@ export default function BookSimulator() {
               <BookingSummaryNew
                 selectedBays={selectedBays}
                 date={selectedDate ? format(selectedDate, "yyyy-MM-dd") : ""}
-                startTime={selectedTime}
+                startTime={effectiveTime}
                 duration={duration}
                 playerCount={playerCount}
                 notes={notes}
@@ -633,6 +767,73 @@ export default function BookSimulator() {
           )}
         </div>
       </div>
+
+      {/* Mobile-only sticky bar: once a bay is picked, give the customer a
+          one-tap jump to the booking details no matter where they've scrolled. */}
+      {totalBaysSelected > 0 && selectedLocation && (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-sm border-t border-slate-200 shadow-2xl px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-bold text-slate-800 text-sm truncate">
+              {totalBaysSelected} bay{totalBaysSelected > 1 ? "s" : ""} • ${totalBayCost.toFixed(2)} hold
+            </p>
+            <p className="text-xs text-emerald-700 font-medium">Not charged today</p>
+          </div>
+          <Button
+            type="button"
+            onClick={scrollToDetails}
+            className="flex-shrink-0 h-12 px-5 text-base font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29] rounded-xl shadow-lg"
+          >
+            Continue →
+          </Button>
+        </div>
+      )}
+
+      {/* After selecting a bay: let the customer choose to add more bays or
+          jump straight to the booking details. */}
+      {showBayChoice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setShowBayChoice(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+          >
+            <div className="bg-gradient-to-r from-[#2d5567] to-[#1e3a47] p-6 text-center">
+              <CheckCircle2 className="w-12 h-12 text-white mx-auto mb-2" />
+              <h3 className="text-2xl font-black text-white heading-font">Bay added! 🏌️</h3>
+              <p className="text-blue-50 mt-1">
+                {totalBaysSelected} bay{totalBaysSelected > 1 ? "s" : ""} · {formatTimeLabel(effectiveTime)}
+                {totalBayCost > 0 ? ` · $${totalBayCost.toFixed(2)} hold` : ""}
+              </p>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-center text-slate-600">
+                Want to grab more bays for your group, or head to your booking details?
+              </p>
+              <Button
+                type="button"
+                onClick={() => setShowBayChoice(false)}
+                className="w-full h-14 text-base font-bold bg-white border-2 border-[#2d5567] text-[#2d5567] hover:bg-slate-50 rounded-xl"
+              >
+                + Book multiple bays
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setShowBayChoice(false);
+                  scrollToDetails();
+                }}
+                className="w-full h-14 text-base font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29] rounded-xl shadow-lg"
+              >
+                Continue to booking →
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {showSpecials && (
         <SpecialsModal

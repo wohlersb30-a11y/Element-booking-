@@ -5,7 +5,8 @@ import { SendEmail } from "@/integrations/Core";
 const BRAND = {
   name: "Element Indoor Golf",
   phone: "651-330-1699",
-  website: "www.elementindoorgolf.com"
+  website: "www.elementindoorgolf.com",
+  logo: "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68dc695d7506a437cb8f84c0/0ff61e822_Element_Final_Logos_RGB-01.jpg"
 };
 
 const LOCATIONS = {
@@ -164,14 +165,14 @@ export async function sendBookingConfirmation(bookingData) {
 </head>
 <body>
   <div class="header">
+    <img src="${BRAND.logo}" alt="${BRAND.name}" width="180" style="display:block;margin:0 auto 18px;width:180px;max-width:70%;height:auto;background:#ffffff;padding:12px;border-radius:10px;" />
     <h1>⛳ You're Booked!</h1>
-    <p style="margin: 10px 0 0 0;">${BRAND.name}</p>
   </div>
 
   <div class="content">
     <p>Hi ${customer_name},</p>
 
-    <p>Game on! Your bay is officially reserved and the simulators are already getting excited. Here's everything you need to know before you tee off:</p>
+    <p>Game on! Your bay is officially reserved. We are looking forward to hosting you! Here is what you need to know:</p>
 
     <div class="booking-details">
       <h2 style="margin-top: 0; color: #2d5567;">Reservation Details</h2>
@@ -233,7 +234,16 @@ export async function sendBookingConfirmation(bookingData) {
       ${BRAND.name} — ${loc.label}<br>
       ${loc.address || ''}<br><br>
 
-      <strong>⏰ Do future-you a favor and arrive 10 minutes early</strong> to check in, settle in, and maybe grab a snack before your first swing.
+      <strong>⏰ Arrive 10 minutes early</strong> to get checked in and settled before your first swing.<br><br>
+
+      <strong>🍻 Check in at the bar when you arrive.</strong> Our staff will get you squared away and let you know when your bay is ready.
+    </div>
+
+    <div style="background:#fff7ed;border:2px solid #f59e0b;border-radius:8px;padding:16px;margin:20px 0;">
+      <p style="margin:0;font-size:16px;font-weight:bold;color:#92400e;">🛑 Please wait to be seated at your bay</p>
+      <p style="margin:8px 0 0;color:#92400e;font-size:14px;line-height:1.5;">
+        Please do not approach your assigned bay until a staff member has cleared the previous group and let you know it's ready. This keeps things running smoothly and gives every group a clean start.
+      </p>
     </div>
 
     <p><strong>Need to change or cancel?</strong> Give us a ring at <strong>${BRAND.phone}</strong> and we'll take care of you. (This inbox doesn't accept replies.)</p>

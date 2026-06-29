@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
-import { X, Loader2 } from "lucide-react";
-import { format } from "date-fns";
+import { X, Loader2, Repeat } from "lucide-react";
+import { format, addDays, addWeeks, addMonths } from "date-fns";
 
 import { sendBookingConfirmation } from "../booking/BookingConfirmationEmail";
 import { sendBookingConfirmationSMS } from "../booking/BookingConfirmationSMS";
@@ -58,6 +58,17 @@ const DURATIONS = [
   { value: 5.5, label: "5.5 hours" },
   { value: 6, label: "6 hours" }
 ];
+
+// Returns the date of occurrence #i (0-based) for a recurring series.
+const advanceDate = (baseDate, frequency, i) => {
+  switch (frequency) {
+    case "daily": return addDays(baseDate, i);
+    case "biweekly": return addWeeks(baseDate, i * 2);
+    case "monthly": return addMonths(baseDate, i);
+    case "weekly":
+    default: return addWeeks(baseDate, i);
+  }
+};
 
 const calculateEndTime = (startTime, duration) => {
   const [hours, minutes] = startTime.split(':').map(Number);
@@ -155,7 +166,10 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     payment_method: "pay_at_venue",
     payment_status: "pending",
     notes: "",
-    bay_locked: false
+    bay_locked: false,
+    is_recurring: false,
+    recurrence_frequency: "weekly",
+    recurrence_count: 4
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -178,67 +192,53 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       ) * formData.duration_hours
     : 0;
 
+  // For a recurring series: the list of session dates and the estimated total
+  // across all of them (peak/off-peak pricing is recomputed per date).
+  const recurrenceCount = Math.max(1, Math.min(52, parseInt(formData.recurrence_count, 10) || 1));
+  const recurringDates = formData.is_recurring && formData.booking_date
+    ? Array.from({ length: recurrenceCount }, (_, i) =>
+        advanceDate(formData.booking_date, formData.recurrence_frequency, i))
+    : [];
+  const seriesTotal = (selectedBay && formData.start_time)
+    ? recurringDates.reduce((sum, d) =>
+        sum + calculateRate(format(d, "yyyy-MM-dd"), formData.start_time, selectedBay) * formData.duration_hours, 0)
+    : 0;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const formattedDate = format(formData.booking_date, "yyyy-MM-dd");
       const endTime = calculateEndTime(formData.start_time, formData.duration_hours);
+      const [nsH, nsM] = formData.start_time.split(':').map(Number);
+      const [neH, neM] = endTime.split(':').map(Number);
+      const newStartMins = nsH * 60 + nsM;
+      const newEndMins = neH * 60 + neM;
+      const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
 
-      // Check for conflicts with existing bookings
-      const hasConflict = existingBookings.some(booking => {
-        if (booking.simulator_id !== formData.simulator_id) return false;
-        if (booking.booking_date !== formattedDate) return false;
-        if (booking.status === 'cancelled') return false;
-        
-        const [newStartHour, newStartMin] = formData.start_time.split(':').map(Number);
-        const [newEndHour, newEndMin] = endTime.split(':').map(Number);
-        const newStartMins = newStartHour * 60 + newStartMin;
-        const newEndMins = newEndHour * 60 + newEndMin;
-        
-        const [bookingStartHour, bookingStartMin] = booking.start_time.split(':').map(Number);
-        const [bookingEndHour, bookingEndMin] = booking.end_time.split(':').map(Number);
-        const bookingStartMins = bookingStartHour * 60 + bookingStartMin;
-        const bookingEndMins = bookingEndHour * 60 + bookingEndMin;
-        
-        return (newStartMins < bookingEndMins && newEndMins > bookingStartMins);
-      });
+      const hasBookingConflict = (formattedDate) =>
+        existingBookings.some(booking => {
+          if (booking.simulator_id !== formData.simulator_id) return false;
+          if (booking.booking_date !== formattedDate) return false;
+          if (booking.status === 'cancelled') return false;
+          const [bsH, bsM] = booking.start_time.split(':').map(Number);
+          const [beH, beM] = booking.end_time.split(':').map(Number);
+          return overlaps(newStartMins, newEndMins, bsH * 60 + bsM, beH * 60 + beM);
+        });
 
-      // Check for conflicts with blocks
-      const hasBlockConflict = existingBlocks.some(block => {
-        if (block.simulator_id !== formData.simulator_id) return false;
-        if (block.block_date !== formattedDate) return false;
-        
-        const [newStartHour, newStartMin] = formData.start_time.split(':').map(Number);
-        const [newEndHour, newEndMin] = endTime.split(':').map(Number);
-        const newStartMins = newStartHour * 60 + newStartMin;
-        const newEndMins = newEndHour * 60 + newEndMin;
-        
-        const [blockStartHour, blockStartMin] = block.start_time.split(':').map(Number);
-        const [blockEndHour, blockEndMin] = block.end_time.split(':').map(Number);
-        const blockStartMins = blockStartHour * 60 + blockStartMin;
-        const blockEndMins = blockEndHour * 60 + blockEndMin;
-        
-        return (newStartMins < blockEndMins && newEndMins > blockStartMins);
-      });
+      const hasBlockConflict = (formattedDate) =>
+        existingBlocks.some(block => {
+          if (block.simulator_id !== formData.simulator_id) return false;
+          if (block.block_date !== formattedDate) return false;
+          const [bsH, bsM] = block.start_time.split(':').map(Number);
+          const [beH, beM] = block.end_time.split(':').map(Number);
+          return overlaps(newStartMins, newEndMins, bsH * 60 + bsM, beH * 60 + beM);
+        });
 
-      if (hasConflict) {
-        alert("This time slot conflicts with an existing booking. Please choose a different time.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (hasBlockConflict) {
-        alert("This time slot is blocked. Please choose a different time.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const bookingData = {
+      const buildBookingData = (formattedDate, cost) => ({
         simulator_id: formData.simulator_id,
         simulator_name: selectedBay.name,
-        location: location, // Added location field
+        location: location,
         customer_name: formData.customer_name,
         customer_email: formData.customer_email,
         customer_phone: formData.customer_phone,
@@ -246,26 +246,77 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         start_time: formData.start_time,
         end_time: endTime,
         duration_hours: formData.duration_hours,
-        total_cost: totalCost,
+        total_cost: cost,
         number_of_players: formData.number_of_players,
         payment_method: formData.payment_method,
         payment_status: formData.payment_status,
         status: "confirmed",
         notes: formData.notes,
         bay_locked: formData.bay_locked
-      };
+      });
 
-      await Booking.create(bookingData);
+      // For a single booking, keep the original specific error messages.
+      if (!formData.is_recurring) {
+        const formattedDate = format(formData.booking_date, "yyyy-MM-dd");
+        if (hasBookingConflict(formattedDate)) {
+          alert("This time slot conflicts with an existing booking. Please choose a different time.");
+          setIsSubmitting(false);
+          return;
+        }
+        if (hasBlockConflict(formattedDate)) {
+          alert("This time slot is blocked. Please choose a different time.");
+          setIsSubmitting(false);
+          return;
+        }
+      }
 
-      // Send confirmation email + SMS (best-effort; don't block on delivery).
-      await Promise.all([
-        sendBookingConfirmation(bookingData).catch((err) =>
-          console.error("Confirmation email failed:", err)
-        ),
-        sendBookingConfirmationSMS(bookingData).catch((err) =>
-          console.error("Confirmation SMS failed:", err)
-        )
-      ]);
+      const dates = formData.is_recurring ? recurringDates : [formData.booking_date];
+
+      const created = [];
+      const skipped = [];
+      let firstBookingData = null;
+
+      for (const d of dates) {
+        const formattedDate = format(d, "yyyy-MM-dd");
+        // Skip any occurrence that collides with a booking or a block.
+        if (hasBookingConflict(formattedDate) || hasBlockConflict(formattedDate)) {
+          skipped.push(format(d, "EEE MMM d"));
+          continue;
+        }
+        const cost = calculateRate(formattedDate, formData.start_time, selectedBay) * formData.duration_hours;
+        const bookingData = buildBookingData(formattedDate, cost);
+        await Booking.create(bookingData);
+        created.push(formattedDate);
+        if (!firstBookingData) firstBookingData = bookingData;
+      }
+
+      if (created.length === 0) {
+        alert("No reservations were created — every selected date conflicts with an existing booking or block.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Send ONE confirmation (the first reservation) so a recurring series
+      // doesn't email/text the customer once per session.
+      if (firstBookingData) {
+        await Promise.all([
+          sendBookingConfirmation(firstBookingData).catch((err) =>
+            console.error("Confirmation email failed:", err)
+          ),
+          sendBookingConfirmationSMS(firstBookingData).catch((err) =>
+            console.error("Confirmation SMS failed:", err)
+          )
+        ]);
+      }
+
+      if (formData.is_recurring) {
+        let msg = `Created ${created.length} reservation${created.length === 1 ? "" : "s"}.`;
+        if (skipped.length) {
+          msg += `\n\nSkipped ${skipped.length} date${skipped.length === 1 ? "" : "s"} due to conflicts:\n${skipped.join(", ")}`;
+        }
+        msg += `\n\nOne confirmation was sent to the customer for the series.`;
+        alert(msg);
+      }
 
       onComplete();
     } catch (error) {
@@ -465,13 +516,91 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           </div>
         </div>
 
+        {/* Recurring reservation */}
+        <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+          <div className="flex items-start space-x-3">
+            <Checkbox
+              id="is-recurring"
+              checked={formData.is_recurring}
+              onCheckedChange={(checked) => setFormData({ ...formData, is_recurring: !!checked })}
+              className="mt-1"
+            />
+            <div className="flex-1">
+              <Label htmlFor="is-recurring" className="font-semibold text-slate-800 cursor-pointer flex items-center gap-2">
+                <Repeat className="w-4 h-4 text-[#2d5567]" />
+                Create recurring reservation
+              </Label>
+              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                Book this same bay, time, and duration on a repeating schedule — great for leagues and regulars.
+              </p>
+            </div>
+          </div>
+
+          {formData.is_recurring && (
+            <div className="pl-8 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Repeats</Label>
+                  <Select
+                    value={formData.recurrence_frequency}
+                    onValueChange={(v) => setFormData({ ...formData, recurrence_frequency: v })}
+                  >
+                    <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="rec-count">Number of sessions</Label>
+                  <Input
+                    id="rec-count"
+                    type="number"
+                    min="1"
+                    max="52"
+                    value={formData.recurrence_count}
+                    onChange={(e) => setFormData({ ...formData, recurrence_count: e.target.value })}
+                    className="h-12"
+                  />
+                </div>
+              </div>
+              {recurringDates.length > 0 && (
+                <div className="text-sm bg-white rounded-lg border border-slate-200 p-3">
+                  <p className="font-semibold text-slate-800">
+                    {recurringDates.length} session{recurringDates.length === 1 ? "" : "s"}:
+                  </p>
+                  <p className="text-slate-600">
+                    {format(recurringDates[0], "EEE, MMM d, yyyy")} → {format(recurringDates[recurringDates.length - 1], "EEE, MMM d, yyyy")}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Any dates that conflict with an existing booking or block are skipped automatically.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Total Cost Display */}
         {totalCost > 0 && (
-          <div className="p-4 bg-emerald-50 rounded-lg">
+          <div className="p-4 bg-emerald-50 rounded-lg space-y-1">
             <div className="flex justify-between items-center">
-              <span className="font-semibold text-lg">Total Cost:</span>
+              <span className="font-semibold text-lg">
+                {formData.is_recurring ? "Cost per session:" : "Total Cost:"}
+              </span>
               <span className="text-2xl font-bold text-[#2d5567]">${totalCost.toFixed(2)}</span>
             </div>
+            {formData.is_recurring && recurringDates.length > 0 && (
+              <div className="flex justify-between items-center pt-2 border-t border-emerald-200">
+                <span className="font-semibold text-sm text-slate-700">
+                  Estimated series total ({recurringDates.length} sessions):
+                </span>
+                <span className="text-lg font-bold text-[#2d5567]">${seriesTotal.toFixed(2)}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -496,7 +625,9 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
                 Creating...
               </>
             ) : (
-              "Create Booking"
+              formData.is_recurring
+                ? `Create ${recurringDates.length} Booking${recurringDates.length === 1 ? "" : "s"}`
+                : "Create Booking"
             )}
           </Button>
         </div>
