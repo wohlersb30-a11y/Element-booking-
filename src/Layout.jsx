@@ -17,30 +17,34 @@ import {
 import { Button } from "@/components/ui/button";
 import { User } from "@/entities/User";
 
+// Customer-facing items accept both "customer" (Supabase profile role) and the
+// legacy "user" value so the sidebar is never empty for a signed-in customer.
+const CUSTOMER_ROLES = ["customer", "user", "admin"];
+
 const navigationItems = [
   {
     title: "Book Simulator",
     url: createPageUrl("BookSimulator"),
     icon: Calendar,
-    roles: ["user", "admin"],
+    roles: CUSTOMER_ROLES,
   },
   {
     title: "My Reservations",
     url: createPageUrl("MyReservations"),
     icon: ClipboardList,
-    roles: ["user", "admin"],
+    roles: CUSTOMER_ROLES,
   },
   {
     title: "Member Signup",
     url: createPageUrl("MemberSignup"),
     icon: Crown,
-    roles: ["user", "admin"],
+    roles: CUSTOMER_ROLES,
   },
   {
     title: "Member Bookings",
     url: createPageUrl("MemberBookings"),
     icon: Crown,
-    roles: ["user", "admin"],
+    roles: CUSTOMER_ROLES,
   },
   {
     title: "Vadnais Heights Admin",

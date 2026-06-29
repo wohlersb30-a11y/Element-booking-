@@ -96,13 +96,21 @@ export const AuthProvider = ({ children }) => {
     if (error) throw error;
   };
 
-  const signup = async (email, password, fullName) => {
+  const signup = async (email, password, fullName, phone) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } }
+      options: { data: { full_name: fullName, phone: phone || '' } }
     });
     if (error) throw error;
+  };
+
+  // Returns 'account' | 'legacy' | 'new' for an email, so the entry screen can
+  // route returning customers to "complete your one-time registration".
+  const checkEmail = async (email) => {
+    const { data, error } = await supabase.rpc('email_status', { p_email: email });
+    if (error) throw error;
+    return data;
   };
 
   const logout = async () => {
@@ -129,6 +137,7 @@ export const AuthProvider = ({ children }) => {
         profileLoaded,
         login,
         signup,
+        checkEmail,
         logout,
         navigateToLogin
       }}
