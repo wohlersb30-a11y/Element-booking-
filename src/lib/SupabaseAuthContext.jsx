@@ -113,6 +113,21 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
+  // Sends a password-reset email. The link returns the customer to /ResetPassword
+  // with a short-lived recovery session, where updatePassword() finishes the job.
+  const resetPassword = async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/ResetPassword`
+    });
+    if (error) throw error;
+  };
+
+  // Sets a new password for the currently-authenticated (incl. recovery) session.
+  const updatePassword = async (password) => {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw error;
+  };
+
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -138,6 +153,8 @@ export const AuthProvider = ({ children }) => {
         login,
         signup,
         checkEmail,
+        resetPassword,
+        updatePassword,
         logout,
         navigateToLogin
       }}

@@ -14,7 +14,7 @@ const LOGO_URL =
 //   legacy  -> "complete your one-time registration" (returning customer)
 //   new     -> create a new account
 export default function Login() {
-  const { login, signup, checkEmail } = useAuth();
+  const { login, signup, checkEmail, resetPassword } = useAuth();
 
   const [step, setStep] = useState('email'); // email | login | claim | signup
   const [email, setEmail] = useState('');
@@ -65,6 +65,24 @@ export default function Login() {
       setError(err.message || 'Sign in failed');
       setLoading(false);
     }
+  };
+
+  const handleForgotPassword = async () => {
+    resetMessages();
+    if (!email.trim()) {
+      setError('Enter your email above first, then tap “Forgot password?”.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await resetPassword(email.trim());
+      setInfo(
+        `We’ve emailed a password reset link to ${email.trim()}. Open it to set a new password. (Check spam if you don’t see it shortly.)`
+      );
+    } catch (err) {
+      setError(err.message || 'Could not send the reset email. Please try again.');
+    }
+    setLoading(false);
   };
 
   // Used for both "claim" (returning customer) and "signup" (new customer).
@@ -170,6 +188,14 @@ export default function Login() {
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? 'Signing in…' : 'Sign In'}
               </Button>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={loading}
+                className="w-full text-sm font-medium text-[#2d5567] hover:underline"
+              >
+                Forgot password?
+              </button>
               <button type="button" onClick={goBackToEmail} className="w-full text-sm text-slate-500 hover:underline">
                 Use a different email
               </button>

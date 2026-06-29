@@ -6,6 +6,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/SupabaseAuthContext';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ResetPassword from './pages/ResetPassword';
 import BookSimulator from './pages/BookSimulator';
 import MyReservations from './pages/MyReservations';
 import AdminDashboard from './pages/AdminDashboard';
@@ -52,6 +53,7 @@ const AuthenticatedApp = () => {
       <Routes>
         <Route path="/Login" element={<Login />} />
         <Route path="/Signup" element={<Signup />} />
+        <Route path="/ResetPassword" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/Login" replace />} />
       </Routes>
     );
@@ -69,6 +71,7 @@ const AuthenticatedApp = () => {
       <Route path="/PaymentSuccess" element={<PaymentSuccess />} />
       <Route path="/MemberSignup" element={<MemberSignup />} />
       <Route path="/MemberBookings" element={<MemberBookings />} />
+      <Route path="/ResetPassword" element={<ResetPassword />} />
       <Route path="/Login" element={<Navigate to="/" replace />} />
       <Route path="/Signup" element={<Navigate to="/" replace />} />
       {/* Add your page Route elements here */}
