@@ -22,6 +22,20 @@ function chunkBookingData(bookingData: unknown): Record<string, string> {
 // time) so their saved card is offered at checkout on return visits. Customer
 // objects are per-account, so we namespace the id by the booking's Stripe
 // account (stripe_customer_map) — a Vadnais customer id is invalid in Burnsville.
+// Confirm a stored Customer id actually exists in THIS Stripe account/mode.
+// A test-mode id is invalid in live mode (and vice-versa), and a customer can
+// be deleted — in any of those cases Stripe throws "No such customer", which
+// would otherwise fail the whole checkout. Returns true only for a live,
+// non-deleted customer.
+async function customerIsValid(stripe: Stripe, id: string): Promise<boolean> {
+  try {
+    const c = await stripe.customers.retrieve(id);
+    return !(c as { deleted?: boolean }).deleted;
+  } catch (_err) {
+    return false;
+  }
+}
+
 async function getOrCreateCustomer(
   stripe: Stripe,
   db: ReturnType<typeof serviceClient>,
@@ -29,7 +43,7 @@ async function getOrCreateCustomer(
   userId: string,
   email: string,
   name: string
-): Promise<string> {
+): Promise<string | undefined> {
   const { data: profile } = await db
     .from('profiles')
     .select('stripe_customer_id, stripe_customer_map')
@@ -37,23 +51,38 @@ async function getOrCreateCustomer(
     .single();
 
   const map = (profile?.stripe_customer_map ?? {}) as Record<string, string>;
-  if (map[account]) return map[account];
 
-  // Legacy fallback: an old single id maps to the Vadnais Heights account.
-  if (account === 'vadnais_heights' && profile?.stripe_customer_id) {
-    const merged = { ...map, vadnais_heights: profile.stripe_customer_id };
-    await db.from('profiles').update({ stripe_customer_map: merged }).eq('id', userId);
-    return profile.stripe_customer_id;
+  // Candidate id from the per-account map, or (Vadnais only) the legacy single id.
+  const candidate =
+    map[account] ||
+    (account === 'vadnais_heights' ? profile?.stripe_customer_id : undefined);
+
+  // Reuse it only if it still resolves in this account/mode. Otherwise it's a
+  // stale id (e.g. created in test mode before the live-key swap) and we mint a
+  // fresh one, overwriting the bad slot so this self-heals after one booking.
+  if (candidate && (await customerIsValid(stripe, candidate))) {
+    if (!map[account]) {
+      const merged = { ...map, [account]: candidate };
+      await db.from('profiles').update({ stripe_customer_map: merged }).eq('id', userId);
+    }
+    return candidate;
   }
 
-  const customer = await stripe.customers.create({
-    email,
-    name,
-    metadata: { supabase_user_id: userId, stripe_account: account }
-  });
-  const merged = { ...map, [account]: customer.id };
-  await db.from('profiles').update({ stripe_customer_map: merged }).eq('id', userId);
-  return customer.id;
+  try {
+    const customer = await stripe.customers.create({
+      email,
+      name,
+      metadata: { supabase_user_id: userId, stripe_account: account }
+    });
+    const merged = { ...map, [account]: customer.id };
+    await db.from('profiles').update({ stripe_customer_map: merged }).eq('id', userId);
+    return customer.id;
+  } catch (err) {
+    // Don't let a Customer hiccup block checkout — fall back to a guest session
+    // (Stripe will still collect the card via customer_email below).
+    console.error('getOrCreateCustomer failed, continuing as guest:', err.message);
+    return undefined;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -96,7 +125,11 @@ Deno.serve(async (req) => {
       }],
       mode: 'payment',
       // Attach to the saved Stripe Customer and remember the card for next time.
-      customer: customerId,
+      // If we couldn't resolve/create a Customer, fall back to just the email so
+      // checkout still works (Stripe will create a guest customer on its own).
+      ...(customerId
+        ? { customer: customerId }
+        : { customer_email: customerEmail || user.email }),
       payment_intent_data: {
         capture_method: 'manual',
         setup_future_usage: 'off_session',
