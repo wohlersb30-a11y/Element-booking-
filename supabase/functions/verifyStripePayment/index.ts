@@ -1,8 +1,6 @@
-import Stripe from 'npm:stripe@14.11.0';
 import { getUser, serviceClient } from '../_shared/clients.ts';
 import { json, preflight } from '../_shared/cors.ts';
-
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '');
+import { retrieveSessionAnyAccount } from '../_shared/stripe.ts';
 
 const toMinutes = (t: string) => {
   const [h, m] = String(t).split(':').map(Number);
@@ -17,10 +15,12 @@ Deno.serve(async (req) => {
     const user = await getUser(req);
     if (!user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { sessionId } = await req.json();
+    const { sessionId, location } = await req.json();
     if (!sessionId) return json({ success: false, error: 'No session ID provided' });
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    // The session lives in exactly one of the location Stripe accounts. Find it
+    // (preferring the hinted location) and use that account's client throughout.
+    const { session, client: stripe } = await retrieveSessionAnyAccount(sessionId, location);
 
     if (session.status !== 'complete') {
       return json({ success: false, error: 'Checkout session not completed' });

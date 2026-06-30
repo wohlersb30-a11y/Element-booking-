@@ -1,8 +1,6 @@
-import Stripe from 'npm:stripe@14.11.0';
 import { getUserWithRole, serviceClient } from '../_shared/clients.ts';
 import { json, preflight } from '../_shared/cors.ts';
-
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '');
+import { stripeForLocation } from '../_shared/stripe.ts';
 
 Deno.serve(async (req) => {
   const pre = preflight(req);
@@ -33,6 +31,8 @@ Deno.serve(async (req) => {
       return json({ success: true, alreadyCaptured: true, booking });
     }
 
+    // Capture on the Stripe account that belongs to this booking's location.
+    const stripe = stripeForLocation(booking.location);
     const intent = await stripe.paymentIntents.retrieve(booking.stripe_payment_id);
     if (intent.status !== 'requires_capture') {
       return json({

@@ -1,11 +1,9 @@
-import Stripe from 'npm:stripe@14.11.0';
 import { getUserWithRole, serviceClient } from '../_shared/clients.ts';
 import { sendEmail } from '../_shared/email.ts';
 import { sendSMS } from '../_shared/sms.ts';
 import { json, preflight } from '../_shared/cors.ts';
 import { BRAND, locationInfo } from '../_shared/locations.ts';
-
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '');
+import { stripeForLocation } from '../_shared/stripe.ts';
 
 const formatTime = (time24: string) => {
   const [hours, minutes] = String(time24).split(':').map(Number);
@@ -47,10 +45,12 @@ Deno.serve(async (req) => {
       return json({ success: true, alreadyCancelled: true, booking });
     }
 
-    // Release the Stripe authorization hold, if one exists.
+    // Release the Stripe authorization hold, if one exists, on the account that
+    // belongs to this booking's location.
     let holdReleased = false;
     if (booking.stripe_payment_id) {
       try {
+        const stripe = stripeForLocation(booking.location);
         await stripe.paymentIntents.cancel(booking.stripe_payment_id);
         holdReleased = true;
       } catch (err) {
