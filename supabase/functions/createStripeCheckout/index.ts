@@ -3,6 +3,21 @@ import { getUser, serviceClient } from '../_shared/clients.ts';
 import { json, preflight } from '../_shared/cors.ts';
 import { stripeForLocation, stripeAccountKey } from '../_shared/stripe.ts';
 
+// Split the booking JSON into <=480-char metadata values to respect Stripe's
+// 500-char-per-value limit. Reassembled by finalizeBooking via bd_count.
+function chunkBookingData(bookingData: unknown): Record<string, string> {
+  const json = JSON.stringify(bookingData);
+  const size = 480;
+  const out: Record<string, string> = {};
+  let count = 0;
+  for (let i = 0; i < json.length; i += size) {
+    out[`bd_${count}`] = json.slice(i, i + size);
+    count++;
+  }
+  out.bd_count = String(count);
+  return out;
+}
+
 // Reuse the customer's Stripe Customer across bookings (creating one the first
 // time) so their saved card is offered at checkout on return visits. Customer
 // objects are per-account, so we namespace the id by the booking's Stripe
@@ -92,9 +107,12 @@ Deno.serve(async (req) => {
           booking_time: bookingData.time
         }
       },
+      // Stripe caps each metadata value at 500 chars, so chunk the booking JSON
+      // (bd_count + bd_0..bd_n) — reassembled in finalizeBooking. Avoids checkout
+      // failures on big group bookings or long notes.
       metadata: {
-        bookingData: JSON.stringify(bookingData),
-        customerName,
+        ...chunkBookingData(bookingData),
+        customerName: String(customerName ?? '').slice(0, 480),
         // Tie the eventual booking to the authenticated user for RLS ownership.
         customerId: user.id
       },

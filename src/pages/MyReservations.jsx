@@ -196,19 +196,20 @@ export default function MyReservations() {
     doc.save(`receipt-${booking.id || "booking"}.pdf`);
   };
 
-  const canReschedule = (booking) => {
+  // Single source of truth for the cancellation/reschedule window. This MUST
+  // match the customer-facing copy ("Free cancellation up to N hours before").
+  // To change the policy, edit this one number.
+  const CANCELLATION_WINDOW_HOURS = 24;
+
+  const hoursUntil = (booking) => {
     const bookingDateTime = new Date(`${booking.booking_date}T${booking.start_time}`);
     const now = new Date();
-    const hoursDiff = (bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-    return hoursDiff > 4; // Can reschedule if more than 4 hours away
+    return (bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
   };
 
-  const canCancel = (booking) => {
-    const bookingDateTime = new Date(`${booking.booking_date}T${booking.start_time}`);
-    const now = new Date();
-    const hoursDiff = (bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-    return hoursDiff > 4; // Can cancel if more than 4 hours away
-  };
+  const canReschedule = (booking) => hoursUntil(booking) > CANCELLATION_WINDOW_HOURS;
+
+  const canCancel = (booking) => hoursUntil(booking) > CANCELLATION_WINDOW_HOURS;
 
   const upcomingBookings = bookings.filter(
     b => b.status === "confirmed" && new Date(b.booking_date) >= new Date()
