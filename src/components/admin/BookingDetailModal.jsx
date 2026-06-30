@@ -171,16 +171,45 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   };
 
   const handleCancelBooking = async () => {
-    if (!confirm("Are you sure you want to cancel this booking?")) return;
-    
+    const hasHold =
+      booking.stripe_payment_id && booking.payment_status !== "refunded";
+    const confirmMsg = hasHold
+      ? "Cancel this booking and release the card's authorization hold? The customer will be notified."
+      : "Are you sure you want to cancel this booking?";
+    if (!confirm(confirmMsg)) return;
+
     setIsCancelling(true);
     try {
-      await Booking.update(booking.id, { status: "cancelled" });
-      alert("Booking cancelled successfully");
-      onClose(); // Close the modal after successful cancellation
+      // Go through the cancelBooking function so the Stripe authorization hold
+      // is actually released (and the customer + any waitlist are notified).
+      // A bare Booking.update would only flip the status and leave the hold on
+      // the card. Fall back to a plain status flip only if the function errors.
+      const result = await base44.functions.invoke("cancelBooking", {
+        bookingId: booking.id
+      });
+
+      if (result.data && result.data.success) {
+        alert(
+          result.data.holdReleased
+            ? "Booking cancelled and the card hold was released."
+            : "Booking cancelled. (No active hold to release.)"
+        );
+        onClose();
+      } else {
+        const msg = result.data?.error || "Cancellation failed.";
+        if (
+          confirm(
+            `${msg}\n\nMark the booking cancelled anyway WITHOUT releasing the hold? You'll need to void the hold manually in Stripe.`
+          )
+        ) {
+          await Booking.update(booking.id, { status: "cancelled" });
+          alert("Booking marked cancelled. Remember to void the hold in Stripe.");
+          onClose();
+        }
+      }
     } catch (error) {
       console.error("Error cancelling booking:", error);
-      alert("Error cancelling booking");
+      alert("Error cancelling booking: " + (error.message || "unknown error"));
     }
     setIsCancelling(false);
   };
