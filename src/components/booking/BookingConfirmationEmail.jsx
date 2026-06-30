@@ -240,15 +240,13 @@ export async function sendBookingConfirmation(bookingData) {
     </div>
 
     <div style="background:#fff7ed;border:2px solid #f59e0b;border-radius:8px;padding:16px;margin:20px 0;">
-      <p style="margin:0;font-size:16px;font-weight:bold;color:#92400e;">🛑 Please wait to be seated at your bay</p>
+      <p style="margin:0;font-size:16px;font-weight:bold;color:#92400e;">🛑 Please wait to be escorted to your bay</p>
       <p style="margin:8px 0 0;color:#92400e;font-size:14px;line-height:1.5;">
         Please do not approach your assigned bay until a staff member has cleared the previous group and let you know it's ready. This keeps things running smoothly and gives every group a clean start.
       </p>
     </div>
 
     <p><strong>Need to change or cancel?</strong> Give us a ring at <strong>${BRAND.phone}</strong> and we'll take care of you. (This inbox doesn't accept replies.)</p>
-
-    <p>Now go practice your victory dance — you're going to need it. See you on the tee! 🏌️</p>
 
     <p style="margin-top: 30px;">
       Game on,<br>
