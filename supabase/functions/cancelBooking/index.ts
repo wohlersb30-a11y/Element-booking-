@@ -77,8 +77,8 @@ Deno.serve(async (req) => {
         subject: `Your tee time is cancelled \u26F3 ${formatDate(booking.booking_date)}`,
         body: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#334155;max-width:600px;margin:0 auto;padding:20px;">
   <div style="text-align:center;padding:28px;background:linear-gradient(135deg,#2d5567,#1e3a47);color:#fff;border-radius:10px 10px 0 0;">
+    <img src="${BRAND.logo}" alt="${BRAND.name}" width="150" style="display:block;margin:0 auto 14px;width:150px;max-width:60%;height:auto;background:#ffffff;padding:10px;border-radius:8px;" />
     <h1 style="margin:0;font-size:26px;">Booking Cancelled \u26F3</h1>
-    <p style="margin:8px 0 0;">${BRAND.name}</p>
   </div>
   <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;">
     <p>Hi ${booking.customer_name},</p>
@@ -133,8 +133,8 @@ Deno.serve(async (req) => {
             subject: `A bay just opened up! \u26F3 ${formatDate(booking.booking_date)}`,
             body: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#334155;max-width:600px;margin:0 auto;padding:20px;">
   <div style="text-align:center;padding:28px;background:linear-gradient(135deg,#2d5567,#1e3a47);color:#fff;border-radius:10px 10px 0 0;">
+    <img src="${BRAND.logo}" alt="${BRAND.name}" width="150" style="display:block;margin:0 auto 14px;width:150px;max-width:60%;height:auto;background:#ffffff;padding:10px;border-radius:8px;" />
     <h1 style="margin:0;font-size:26px;">A Bay Opened Up! \u26F3</h1>
-    <p style="margin:8px 0 0;">${BRAND.name}</p>
   </div>
   <div style="background:#fff;padding:28px;border:1px solid #e2e8f0;border-top:none;">
     <p>Hi ${entry.customer_name},</p>

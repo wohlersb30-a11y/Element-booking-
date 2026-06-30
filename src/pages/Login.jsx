@@ -118,22 +118,22 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <Card className="w-full max-w-md shadow-lg">
-        <CardHeader className="text-center space-y-3">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-slate-100 p-4">
+      <Card className="w-full max-w-md shadow-2xl border-0 rounded-2xl overflow-hidden">
+        <CardHeader className="text-center space-y-4 bg-gradient-to-r from-[#2d5567] to-[#1e3a47] px-6 py-8">
           <img
             src={LOGO_URL}
             alt="Element Indoor Golf"
-            className="mx-auto h-16 w-auto object-contain"
+            className="mx-auto h-16 w-auto object-contain bg-white rounded-xl p-2"
           />
-          <p className="text-slate-500 text-sm">
+          <p className="text-blue-50 text-sm">
             {step === 'email' && 'Book your bay — enter your email to get started'}
             {step === 'login' && 'Welcome back! Enter your password to sign in'}
             {step === 'claim' && "Welcome back! Let's finish setting up your account"}
             {step === 'signup' && 'Create your account to book'}
           </p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6">
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertDescription>{error}</AlertDescription>
@@ -160,7 +160,7 @@ export default function Login() {
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full h-11 font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29]" disabled={loading}>
                 {loading ? 'Checking…' : 'Continue'}
               </Button>
             </form>
@@ -185,7 +185,7 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full h-11 font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29]" disabled={loading}>
                 {loading ? 'Signing in…' : 'Sign In'}
               </Button>
               <button
@@ -245,7 +245,7 @@ export default function Login() {
                   onChange={(e) => setConfirm(e.target.value)}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full h-11 font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29]" disabled={loading}>
                 {loading ? 'Setting up…' : 'Complete Registration'}
               </Button>
               <button type="button" onClick={goBackToEmail} className="w-full text-sm text-slate-500 hover:underline">
@@ -306,7 +306,7 @@ export default function Login() {
                   onChange={(e) => setConfirm(e.target.value)}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full h-11 font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29]" disabled={loading}>
                 {loading ? 'Creating…' : 'Create Account'}
               </Button>
               <button type="button" onClick={goBackToEmail} className="w-full text-sm text-slate-500 hover:underline">
@@ -316,6 +316,9 @@ export default function Login() {
           )}
         </CardContent>
       </Card>
+      <p className="mt-6 text-center text-xs text-slate-500 max-w-md">
+        Vadnais Heights · Burnsville &nbsp;|&nbsp; 651-330-1699 &nbsp;|&nbsp; www.elementindoorgolf.com
+      </p>
     </div>
   );
 }

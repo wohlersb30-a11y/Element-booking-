@@ -40,16 +40,23 @@ export default function AvailableBayCard({
       whileTap={{ scale: 0.98 }}
       transition={{ duration: 0.2 }}
     >
-      <Card 
-        className={`cursor-pointer transition-all duration-300 overflow-hidden ${
-          isSelected 
-            ? 'ring-4 ring-[#2d5567] shadow-2xl bg-gradient-to-br from-blue-50 to-slate-50' 
-            : 'hover:ring-2 hover:ring-[#2d5567]/50 hover:shadow-xl bg-white'
+      <Card
+        className={`cursor-pointer transition-all duration-300 overflow-hidden rounded-2xl ${
+          isSelected
+            ? 'ring-4 ring-[#2d5567] shadow-2xl bg-gradient-to-br from-blue-50 to-slate-50'
+            : 'ring-1 ring-slate-200 hover:ring-2 hover:ring-[#2d5567]/50 hover:shadow-xl bg-white'
         }`}
         onClick={onSelect}
       >
-        {isVIP && (
-          <div className="h-2 bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-400"></div>
+        <div className={`h-1.5 ${
+          isVIP
+            ? 'bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-400'
+            : 'bg-gradient-to-r from-[#2d5567] to-[#1e3a47]'
+        }`}></div>
+        {isSelected && (
+          <div className="bg-[#2d5567] text-white text-xs font-bold tracking-wide uppercase text-center py-1">
+            Added to your booking
+          </div>
         )}
         <CardHeader className="p-5 pb-3">
           <div className="flex items-start justify-between gap-3">
@@ -123,10 +130,10 @@ export default function AvailableBayCard({
             {isSelected ? (
               <>
                 <Check className="w-5 h-5 mr-2" />
-                Selected
+                Added — tap to remove
               </>
             ) : (
-              'Select This Bay'
+              'Add This Bay'
             )}
           </Button>
         </CardContent>

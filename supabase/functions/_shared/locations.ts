@@ -3,7 +3,8 @@
 export const BRAND = {
   name: 'Element Indoor Golf',
   phone: '651-330-1699',
-  website: 'www.elementindoorgolf.com'
+  website: 'www.elementindoorgolf.com',
+  logo: 'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68dc695d7506a437cb8f84c0/0ff61e822_Element_Final_Logos_RGB-01.jpg'
 };
 
 type LocationInfo = {
