@@ -3,10 +3,40 @@ import { Booking } from "@/entities/all";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, Loader2, CreditCard } from "lucide-react";
 
 export default function CheckInSystem({ booking, onUpdate }) {
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // An authorization hold that can still be released (not yet charged/released).
+  const hasActiveHold =
+    booking.stripe_payment_id && booking.payment_status === "authorized";
+
+  const handleReleaseHold = async () => {
+    const ok = window.confirm(
+      `Release the $${Number(booking.total_cost || 0).toFixed(
+        2
+      )} authorization hold on this card?\n\nThe customer is NOT charged and the booking stays on the schedule. Use this once they've arrived/paid so the hold drops off their card right away instead of expiring in up to 7 days.`
+    );
+    if (!ok) return;
+
+    setIsUpdating(true);
+    try {
+      const result = await base44.functions.invoke("releaseHold", {
+        bookingId: booking.id
+      });
+      if (result.data && result.data.success) {
+        alert("Hold released — the funds will drop off the customer's card.");
+        if (onUpdate) onUpdate();
+      } else {
+        alert(result.data?.error || "Could not release the hold.");
+      }
+    } catch (error) {
+      console.error("Error releasing hold:", error);
+      alert("Could not release the hold: " + (error.message || "unknown error"));
+    }
+    setIsUpdating(false);
+  };
 
   const handleCheckIn = async (status) => {
     // On a no-show, optionally charge the authorization hold per the
@@ -98,6 +128,31 @@ export default function CheckInSystem({ booking, onUpdate }) {
             </Button>
           )}
         </div>
+      )}
+
+      {/* Release the authorization hold without cancelling the booking — use
+          once the guest has arrived/paid so funds aren't held for up to 7 days. */}
+      {hasActiveHold && (
+        <Button
+          onClick={handleReleaseHold}
+          disabled={isUpdating}
+          variant="outline"
+          className="w-full border-[#2d5567] text-[#2d5567] hover:bg-[#2d5567]/5"
+        >
+          {isUpdating ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <CreditCard className="w-4 h-4 mr-2" />
+          )}
+          Release Hold (no charge)
+        </Button>
+      )}
+
+      {booking.stripe_payment_id && booking.payment_status === "released" && (
+        <p className="text-sm text-emerald-700 flex items-center gap-1.5">
+          <CheckCircle2 className="w-4 h-4" />
+          Authorization hold released — no charge.
+        </p>
       )}
     </div>
   );
