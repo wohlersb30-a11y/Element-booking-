@@ -1,5 +1,6 @@
 import type Stripe from 'npm:stripe@14.11.0';
 import { serviceClient } from './clients.ts';
+import { applyDebitPlan } from './bankedHours.ts';
 
 const toMinutes = (t: string) => {
   const [h, m] = String(t).split(':').map(Number);
@@ -22,7 +23,7 @@ export function readBookingData(metadata: Record<string, string> | null): any {
 }
 
 type FinalizeResult =
-  | { success: true; bookings: any[]; alreadyProcessed?: boolean; kind?: 'member' | 'regular' }
+  | { success: true; bookings: any[]; alreadyProcessed?: boolean; kind?: 'member' | 'regular' | 'package'; hourPackage?: any }
   | { success: false; conflict?: true; error: string };
 
 // Single source of truth for turning a completed Checkout Session into booking
@@ -50,6 +51,17 @@ export async function finalizeBookingFromSession(
   // Prime member bookings are finalized into member_bookings, not bookings.
   if ((session.metadata as Record<string, string>)?.booking_kind === 'member') {
     return finalizeMemberBooking(stripe, session, db, paymentIntentId);
+  }
+
+  // Banked-hours package purchases credit the ledger instead of creating a booking.
+  if ((session.metadata as Record<string, string>)?.booking_kind === 'package') {
+    return finalizeHourPackage(session, db, paymentIntentId);
+  }
+
+  // VIP banked-hours booking: the surcharge hold succeeded — create the booking
+  // and debit the hours now.
+  if ((session.metadata as Record<string, string>)?.booking_kind === 'banked') {
+    return finalizeBankedBooking(stripe, session, db, paymentIntentId);
   }
 
   const bookingData = readBookingData(session.metadata as Record<string, string>);
@@ -223,6 +235,157 @@ async function finalizeMemberBooking(
   }
 
   return { success: true, bookings: created, kind: 'member' };
+}
+
+// Credit a completed package purchase to the customer's hour ledger. Idempotent
+// via the (stripe_payment_id, reason) unique index — a duplicate success-page /
+// webhook call hits the constraint and we return the existing credit instead.
+async function finalizeHourPackage(
+  session: Stripe.Checkout.Session,
+  db: ReturnType<typeof serviceClient>,
+  paymentIntentId: string
+): Promise<FinalizeResult> {
+  const m = (session.metadata || {}) as Record<string, string>;
+  const email = (m.customerEmail || session.customer_details?.email || '').toLowerCase();
+  const kind = m.hour_kind === 'peak' ? 'peak' : 'off_peak';
+  const size = parseInt(m.package_size || '0', 10);
+  const price = Number(m.price || 0);
+  const location = m.location || null;
+  const userId = m.customerId || null;
+
+  // Idempotency: already credited for this payment intent?
+  const { data: existing } = await db
+    .from('hour_transactions')
+    .select('*')
+    .eq('stripe_payment_id', paymentIntentId)
+    .eq('reason', 'purchase');
+  if (existing && existing.length > 0) {
+    return { success: true, bookings: [], alreadyProcessed: true, kind: 'package', hourPackage: existing[0] };
+  }
+
+  const row = {
+    user_email: email,
+    user_id: userId,
+    kind,
+    hours: size,
+    reason: 'purchase',
+    package_size: size,
+    amount_paid: price,
+    location,
+    stripe_payment_id: paymentIntentId,
+    created_by: 'system',
+    note: `Purchased ${size}h ${kind} package`
+  };
+
+  const { data: created, error } = await db.from('hour_transactions').insert(row).select().single();
+  if (error) {
+    // 23505 = unique_violation: a concurrent call already credited this PI.
+    if ((error as any).code === '23505') {
+      const { data: now } = await db
+        .from('hour_transactions')
+        .select('*')
+        .eq('stripe_payment_id', paymentIntentId)
+        .eq('reason', 'purchase');
+      if (now && now.length > 0) {
+        return { success: true, bookings: [], alreadyProcessed: true, kind: 'package', hourPackage: now[0] };
+      }
+    }
+    throw error;
+  }
+
+  return { success: true, bookings: [], kind: 'package', hourPackage: created };
+}
+
+// Finalize a VIP banked-hours booking after its surcharge hold is authorized:
+// create the booking (payment_method = banked_hours) and debit the hours.
+// Idempotent via bookings.stripe_payment_id.
+async function finalizeBankedBooking(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  db: ReturnType<typeof serviceClient>,
+  paymentIntentId: string
+): Promise<FinalizeResult> {
+  const m = (session.metadata || {}) as Record<string, string>;
+  let d: any;
+  try {
+    d = JSON.parse(m.banked || '{}');
+  } catch {
+    return { success: false, error: 'Malformed banked booking data.' };
+  }
+
+  // Idempotency: already created for this payment intent?
+  const { data: existing } = await db
+    .from('bookings')
+    .select('*')
+    .eq('stripe_payment_id', paymentIntentId);
+  if (existing && existing.length > 0) {
+    return { success: true, bookings: existing, alreadyProcessed: true };
+  }
+
+  // Conflict re-check across both booking tables.
+  const s = toMinutes(d.startTime);
+  const e = toMinutes(d.endTime);
+  const [{ data: reg }, { data: mem }] = await Promise.all([
+    db.from('bookings').select('start_time,end_time,status,simulator_id')
+      .eq('simulator_id', d.simulatorId).eq('booking_date', d.bookingDate).neq('status', 'cancelled'),
+    db.from('member_bookings').select('start_time,end_time,status,simulator_id')
+      .eq('simulator_id', d.simulatorId).eq('booking_date', d.bookingDate).neq('status', 'cancelled')
+  ]);
+  const clash = [...(reg || []), ...(mem || [])].some(
+    (b: any) => s < toMinutes(b.end_time) && e > toMinutes(b.start_time)
+  );
+  if (clash) {
+    await releaseHold(stripe, paymentIntentId);
+    return {
+      success: false,
+      conflict: true,
+      error: 'Sorry, that bay was just booked by someone else. Your card hold has been released — please choose another time.'
+    };
+  }
+
+  const { data: created, error } = await db
+    .from('bookings')
+    .insert({
+      simulator_id: d.simulatorId,
+      simulator_name: d.simulatorName,
+      location: d.location,
+      customer_id: d.customerId || null,
+      customer_name: d.customerName,
+      customer_email: d.customerEmail,
+      customer_phone: d.customerPhone,
+      booking_date: d.bookingDate,
+      start_time: d.startTime,
+      end_time: d.endTime,
+      duration_hours: d.durationHours,
+      total_cost: d.surcharge || 0,
+      number_of_players: d.playerCount || 1,
+      payment_method: 'banked_hours',
+      payment_status: 'authorized',
+      status: 'confirmed',
+      notes: d.notes || '',
+      check_in_status: 'not_arrived',
+      stripe_payment_id: paymentIntentId
+    })
+    .select()
+    .single();
+  if (error) {
+    const { data: now } = await db.from('bookings').select('*').eq('stripe_payment_id', paymentIntentId);
+    if (now && now.length > 0) return { success: true, bookings: now, alreadyProcessed: true };
+    throw error;
+  }
+
+  // Debit the banked hours now that the booking exists.
+  await applyDebitPlan(db, {
+    email: d.customerEmail,
+    userId: d.customerId || null,
+    location: d.location,
+    plan: d.debitPlan || [],
+    bookingId: created.id,
+    stripePaymentId: paymentIntentId,
+    note: `Booked ${d.simulatorName} ${d.bookingDate} ${d.startTime} (VIP)`
+  });
+
+  return { success: true, bookings: [created] };
 }
 
 async function releaseHold(stripe: Stripe, paymentIntentId: string) {

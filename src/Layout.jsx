@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Calendar, ClipboardList, Menu, X, LogOut, Crown } from "lucide-react";
+import { Calendar, ClipboardList, Menu, X, LogOut, Crown, Clock, Ticket } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +35,18 @@ const navigationItems = [
     roles: CUSTOMER_ROLES,
   },
   {
+    title: "Buy Hours",
+    url: createPageUrl("BuyHours"),
+    icon: Ticket,
+    roles: CUSTOMER_ROLES,
+  },
+  {
+    title: "My Hours",
+    url: createPageUrl("MyHours"),
+    icon: Clock,
+    roles: CUSTOMER_ROLES,
+  },
+  {
     title: "Member Signup",
     url: createPageUrl("MemberSignup"),
     icon: Crown,
@@ -56,6 +68,12 @@ const navigationItems = [
     title: "Burnsville Admin",
     url: createPageUrl("AdminDashboardBurnsville"),
     icon: ClipboardList,
+    roles: ["admin"],
+  },
+  {
+    title: "Hours Admin",
+    url: createPageUrl("AdminHours"),
+    icon: Clock,
     roles: ["admin"],
   },
 ];

@@ -30,7 +30,9 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       bookings: result.bookings,
-      alreadyProcessed: result.alreadyProcessed ?? false
+      alreadyProcessed: result.alreadyProcessed ?? false,
+      kind: result.kind ?? 'regular',
+      hourPackage: result.hourPackage ?? null
     });
   } catch (error) {
     console.error('verifyStripePayment error:', error.message);

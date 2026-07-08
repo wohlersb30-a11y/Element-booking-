@@ -17,6 +17,7 @@ export default function PaymentSuccess() {
   const [status, setStatus] = useState("processing");
   const [message, setMessage] = useState("");
   const [isMember, setIsMember] = useState(false);
+  const [isPackage, setIsPackage] = useState(false);
 
   const addDebug = (msg) => {
     console.log(msg);
@@ -51,6 +52,22 @@ export default function PaymentSuccess() {
       if (result.data && result.data.success) {
         addDebug(`SUCCESS! Created ${result.data.bookings?.length || 0} bookings`);
         setStatus("success");
+
+        // Banked-hours package purchases credit the ledger — no booking, no
+        // confirmation email pipeline. Route to the hours page.
+        if (result.data.kind === "package") {
+          setIsPackage(true);
+          const hp = result.data.hourPackage;
+          setMessage(
+            hp
+              ? `${hp.hours} ${hp.kind === "peak" ? "peak" : "off-peak"} hours added to your account!`
+              : "Your hours have been added to your account!"
+          );
+          setTimeout(() => {
+            navigate(createPageUrl("MyHours"));
+          }, 3000);
+          return;
+        }
 
         // Member prime bookings live in member_bookings (no customer_* fields),
         // so skip the regular confirmation pipeline and route to the portal.
@@ -118,28 +135,38 @@ export default function PaymentSuccess() {
               >
                 <CheckCircle2 className="w-12 h-12 text-white" />
               </motion.div>
-              <h2 className="text-3xl font-black text-white heading-font mb-1">You're Booked! 🏌️</h2>
-              <p className="text-blue-50">Your bay is officially reserved.</p>
+              <h2 className="text-3xl font-black text-white heading-font mb-1">
+                {isPackage ? "Hours Added! ⛳" : "You're Booked! 🏌️"}
+              </h2>
+              <p className="text-blue-50">
+                {isPackage ? message : "Your bay is officially reserved."}
+              </p>
             </div>
             <CardContent className="p-8 text-center">
               <p className="text-slate-600 mb-6">
-                {isMember
+                {isPackage
+                  ? "Your prepaid hours are ready to use. Book any bay and choose \"Use banked hours\" at checkout."
+                  : isMember
                   ? "A card hold is in place at your member rate — no charge until you check in. See you on the tee!"
                   : "A confirmation email is on its way with everything you need to know. See you on the tee!"}
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Button
-                  onClick={() => navigate(createPageUrl(isMember ? "MemberBookings" : "MyReservations"))}
+                  onClick={() =>
+                    navigate(createPageUrl(isPackage ? "MyHours" : isMember ? "MemberBookings" : "MyReservations"))
+                  }
                   className="h-12 px-6 text-base font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29] rounded-xl"
                 >
-                  {isMember ? "Back to Member Portal" : "View My Reservations"}
+                  {isPackage ? "View My Hours" : isMember ? "Back to Member Portal" : "View My Reservations"}
                 </Button>
                 <Button
-                  onClick={() => navigate(createPageUrl(isMember ? "MemberBookings" : "BookSimulator"))}
+                  onClick={() =>
+                    navigate(createPageUrl(isPackage ? "BookSimulator" : isMember ? "MemberBookings" : "BookSimulator"))
+                  }
                   variant="outline"
                   className="h-12 px-6 text-base font-bold rounded-xl border-2"
                 >
-                  Book Another
+                  {isPackage ? "Book a Bay" : "Book Another"}
                 </Button>
               </div>
             </CardContent>

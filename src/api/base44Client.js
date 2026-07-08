@@ -10,6 +10,7 @@ import { ScheduleBlock } from '@/entities/ScheduleBlock';
 import { Membership } from '@/entities/Membership';
 import { MemberBooking } from '@/entities/MemberBooking';
 import { Special } from '@/entities/Special';
+import { HourTransaction } from '@/entities/HourTransaction';
 import { User } from '@/entities/User';
 import { SendEmail } from '@/integrations/Core';
 
@@ -42,6 +43,7 @@ export const base44 = {
     Membership,
     MemberBooking,
     Special,
+    HourTransaction,
     User
   },
   functions: { invoke },

@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { computeTax } from "@/config/tax";
+import { isPeakSlot, coveringKinds } from "@/config/hourPackages";
 
 import TimeSelectionForm from "../components/booking/TimeSelectionForm";
 import PlayerCountInput from "../components/booking/PlayerCountInput";
@@ -173,6 +174,10 @@ export default function BookSimulator() {
   // Popup shown right after a bay is selected, asking the customer whether they
   // want to add more bays or jump straight to the booking details.
   const [showBayChoice, setShowBayChoice] = useState(false);
+  // Banked-hours balance for the signed-in customer at the selected location,
+  // { peak, off_peak }. Enables the "Use banked hours" checkout option.
+  const [bankedBalance, setBankedBalance] = useState({ peak: 0, off_peak: 0 });
+  const [bankedBusy, setBankedBusy] = useState(false);
   // Lets us jump the customer straight to the booking details once they pick a
   // bay, instead of forcing them to scroll past the whole list of bay cards.
   const detailsRef = useRef(null);
@@ -186,6 +191,94 @@ export default function BookSimulator() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Load the customer's banked-hours balance for the selected location so we can
+  // offer "Use banked hours" at checkout. RLS scopes the ledger to this user.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!customerEmail || !selectedLocation) {
+        setBankedBalance({ peak: 0, off_peak: 0 });
+        return;
+      }
+      try {
+        const txns = await base44.entities.HourTransaction.filter({
+          user_email: customerEmail.toLowerCase(),
+          location: selectedLocation
+        });
+        const bal = { peak: 0, off_peak: 0 };
+        for (const t of txns || []) {
+          bal[t.kind === "peak" ? "peak" : "off_peak"] += Number(t.hours || 0);
+        }
+        if (!cancelled) setBankedBalance(bal);
+      } catch (e) {
+        if (!cancelled) setBankedBalance({ peak: 0, off_peak: 0 });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [customerEmail, selectedLocation, showSuccess]);
+
+  // Can the single selected bay's booking be fully covered by banked hours?
+  const bankedEligible = (() => {
+    if (selectedBays.length !== 1) return false;
+    if (!selectedDate || !(bookingTime || selectedTime)) return false;
+    const t = bookingTime || selectedTime;
+    const peak = isPeakSlot(format(selectedDate, "yyyy-MM-dd"), t);
+    const usable = coveringKinds(peak).reduce((s, k) => s + Math.max(0, bankedBalance[k]), 0);
+    return usable + 1e-9 >= duration;
+  })();
+
+  // Book the single selected bay using prepaid banked hours instead of a card
+  // hold. Standard bays complete immediately; VIP bays redirect to pay only the
+  // surcharge.
+  const handleBankedBooking = async () => {
+    if (selectedBays.length !== 1) {
+      alert("Banked hours apply to a single-bay booking. Please select just one bay.");
+      return;
+    }
+    setBankedBusy(true);
+    try {
+      const bay = selectedBays[0].bay;
+      const effectiveTime = bookingTime || selectedTime;
+      const formattedDate = format(selectedDate, "yyyy-MM-dd");
+      const endTime = calculateEndTime(effectiveTime, duration);
+      const appDomain = window.location.origin;
+
+      const res = await base44.functions.invoke("bookWithBankedHours", {
+        simulatorId: bay.id,
+        location: selectedLocation,
+        bookingDate: formattedDate,
+        startTime: effectiveTime,
+        endTime,
+        durationHours: duration,
+        playerCount,
+        notes,
+        customerName,
+        customerPhone,
+        successUrl: `${appDomain}/PaymentSuccess?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${appDomain}/BookSimulator`
+      });
+      const d = res.data || {};
+
+      if (d.needsSurcharge && d.url) {
+        if (window.top) window.top.location.href = d.url;
+        else window.location.href = d.url;
+        return;
+      }
+      if (d.success) {
+        setShowSuccess(true);
+        navigate("/MyReservations");
+        return;
+      }
+      alert(d.error || "Could not book with banked hours. Please try again.");
+    } catch (error) {
+      alert("Error: " + (error.message || "Please try again"));
+    } finally {
+      setBankedBusy(false);
+    }
+  };
 
   const loadData = async () => {
     setIsLoading(true);
@@ -748,11 +841,47 @@ export default function BookSimulator() {
                           </>
                         ) : (
                           <>
-                            <Shield className="w-6 h-6 mr-2" /> 
+                            <Shield className="w-6 h-6 mr-2" />
                             Continue to Secure Payment
                           </>
                         )}
                       </Button>
+
+                      {/* Prepaid banked-hours option: only when the signed-in
+                          customer has enough hours for this single-bay slot. */}
+                      {bankedEligible && (
+                        <div className="pt-2">
+                          <div className="flex items-center gap-3 my-2">
+                            <div className="h-px flex-1 bg-slate-200" />
+                            <span className="text-xs font-medium text-slate-400">OR</span>
+                            <div className="h-px flex-1 bg-slate-200" />
+                          </div>
+                          <div className="rounded-xl border-2 border-teal-300 bg-teal-50 p-4">
+                            <p className="text-sm font-semibold text-teal-900">
+                              You have banked hours here:{" "}
+                              {Math.max(0, bankedBalance.peak)} peak · {Math.max(0, bankedBalance.off_peak)} off-peak
+                            </p>
+                            <p className="text-xs text-teal-800 mt-1">
+                              Use {duration} hour{duration !== 1 ? "s" : ""} for this booking — no card hold needed
+                              {selectedBays[0]?.bay?.bay_type === "vip"
+                                ? " (VIP suite adds a per-hour surcharge to your card)."
+                                : "."}
+                            </p>
+                            <Button
+                              type="button"
+                              onClick={handleBankedBooking}
+                              disabled={bankedBusy || !customerName || !customerEmail || !customerPhone}
+                              className="w-full h-12 mt-3 text-base font-bold bg-teal-600 hover:bg-teal-700 rounded-xl"
+                            >
+                              {bankedBusy ? (
+                                <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Booking…</>
+                              ) : (
+                                <><Clock className="w-5 h-5 mr-2" /> Use {duration} banked hour{duration !== 1 ? "s" : ""}</>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </form>
                   </CardContent>
                 </Card>
