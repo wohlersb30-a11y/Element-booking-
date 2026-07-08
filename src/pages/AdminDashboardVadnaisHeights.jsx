@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect } from "react";
 import { Booking, Simulator, User, ScheduleBlock } from "@/entities/all";
+import { base44 } from "@/api/base44Client";
+import { normalizeMemberBooking } from "@/lib/bookingCategories";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Plus, Loader2, Users, DollarSign, Ban, DollarSignIcon, BarChart3, Tag, Sparkles } from "lucide-react";
@@ -108,19 +110,23 @@ export default function AdminDashboardVadnaisHeights() {
   const loadBookingsForDate = async () => {
     try {
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
-      const [allBookings, allBlocks] = await Promise.all([
+      const [allBookings, allBlocks, allMemberBookings] = await Promise.all([
         Booking.list(),
-        ScheduleBlock.list()
+        ScheduleBlock.list(),
+        base44.entities.MemberBooking.list()
       ]);
-      
+
       const dateBookings = allBookings.filter(
         b => b.booking_date === formattedDate && b.status !== "cancelled" && b.location === "vadnais_heights"
       );
+      const dateMemberBookings = (allMemberBookings || [])
+        .filter(b => b.booking_date === formattedDate && b.status !== "cancelled" && b.location === "vadnais_heights")
+        .map(normalizeMemberBooking);
       const dateBlocks = allBlocks.filter(
         b => b.block_date === formattedDate && b.location === "vadnais_heights"
       );
-      
-      setBookings(dateBookings);
+
+      setBookings([...dateBookings, ...dateMemberBookings]);
       setBlocks(dateBlocks);
     } catch (error) {
       console.error("Error loading bookings:", error);

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, Lock } from "lucide-react";
+import { Users, Lock, Crown } from "lucide-react";
 import { Booking } from "@/entities/Booking";
+import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -300,6 +301,19 @@ export default function DailyScheduleView({
       <Card className="bg-white">
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="text-xl sm:text-2xl">Daily Schedule</CardTitle>
+          {/* Color key — always visible so staff can read the schedule at a glance. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2">
+            {BOOKING_CATEGORIES.map((cat) => (
+              <div key={cat.key} className="flex items-center gap-1.5">
+                <span className={`inline-block w-3 h-3 rounded-sm ${cat.dot}`} />
+                <span className="text-xs text-slate-600">{cat.label}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm bg-slate-400" />
+              <span className="text-xs text-slate-600">Blocked</span>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <DragDropContext onDragEnd={handleDragEnd}>
@@ -362,8 +376,10 @@ export default function DailyScheduleView({
 
                                     if (booking && isBookingStart(booking, halfSlot)) {
                                       const span = getBookingSpan(booking);
-                                      const { first, last } = getFirstAndLastName(booking.customer_name);
+                                      const { first, last } = getFirstAndLastName(booking.customer_name || "");
                                       const dropId = `bay-${bay.id}-slot-${halfSlot}`;
+                                      const cat = categoryStyle(booking);
+                                      const isMember = booking.booking_type === 'member' || booking.is_member;
 
                                       const [startHour, startMin] = booking.start_time.split(':').map(Number);
                                       const [endHour, endMin] = booking.end_time.split(':').map(Number);
@@ -374,6 +390,46 @@ export default function DailyScheduleView({
                                         const m = currentMin % 60;
                                         renderedSlots.add(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
                                         currentMin += 30;
+                                      }
+
+                                      const blockInner = (
+                                        <div className={`absolute inset-0 ${cat.block} p-2 overflow-hidden flex flex-col justify-center transition-colors border-l-4 ${booking.bay_locked ? 'border-emerald-600' : cat.border}`}>
+                                          {isMember ? (
+                                            <div className="absolute top-1 right-1 opacity-90" title="Member reservation">
+                                              <Crown className="w-3 h-3" />
+                                            </div>
+                                          ) : booking.bay_locked ? (
+                                            <div
+                                              className="absolute top-1 right-1 text-emerald-100"
+                                              title="Customer prefers this bay — the optimizer won't move it"
+                                            >
+                                              <Lock className="w-3 h-3" />
+                                            </div>
+                                          ) : null}
+                                          <div className="text-[11px] font-bold truncate pr-3">{first} {last}</div>
+                                          <div className="text-[10px] opacity-80 truncate">
+                                            {isMember ? (booking.is_prime ? 'Prime member' : 'Included') : booking.customer_phone}
+                                          </div>
+                                          <div className="flex items-center gap-1 mt-0.5">
+                                            <Users className="w-3 h-3" />
+                                            <span className="text-[9px]">{booking.number_of_players || 1}</span>
+                                          </div>
+                                        </div>
+                                      );
+
+                                      // Member reservations live in a different table and can't be
+                                      // drag-moved via Booking.update, so render them as a static,
+                                      // non-draggable block — still fully visible and color-coded.
+                                      if (isMember) {
+                                        return (
+                                          <div
+                                            key={dropId}
+                                            style={{ width: `${span * HOUR_WIDTH}px`, minWidth: `${span * HOUR_WIDTH}px`, position: 'relative' }}
+                                            className={`min-h-[60px] ${isHourMark ? 'border-l-2 border-l-slate-400' : ''}`}
+                                          >
+                                            <div className="absolute inset-0 border-r border-b">{blockInner}</div>
+                                          </div>
+                                        );
                                       }
 
                                       return (
@@ -396,22 +452,7 @@ export default function DailyScheduleView({
                                                     }`}
                                                     onClick={() => onBookingClick(booking)}
                                                   >
-                                                    <div className={`absolute inset-0 bg-yellow-400 text-slate-900 p-2 overflow-hidden flex flex-col justify-center hover:bg-yellow-500 transition-colors ${booking.bay_locked ? 'border-l-4 border-emerald-600' : 'border-l-4 border-yellow-600'}`}>
-                                                      {booking.bay_locked && (
-                                                        <div
-                                                          className="absolute top-1 right-1 text-emerald-700"
-                                                          title="Customer prefers this bay — the optimizer won't move it"
-                                                        >
-                                                          <Lock className="w-3 h-3" />
-                                                        </div>
-                                                      )}
-                                                      <div className="text-[11px] font-bold truncate pr-3">{first} {last}</div>
-                                                      <div className="text-[10px] opacity-80 truncate">{booking.customer_phone}</div>
-                                                      <div className="flex items-center gap-1 mt-0.5">
-                                                        <Users className="w-3 h-3" />
-                                                        <span className="text-[9px]">{booking.number_of_players || 1}</span>
-                                                      </div>
-                                                    </div>
+                                                    {blockInner}
                                                   </div>
                                                 )}
                                               </Draggable>
