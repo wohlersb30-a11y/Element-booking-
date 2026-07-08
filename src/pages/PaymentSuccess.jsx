@@ -16,6 +16,7 @@ export default function PaymentSuccess() {
   const navigate = useNavigate();
   const [status, setStatus] = useState("processing");
   const [message, setMessage] = useState("");
+  const [isMember, setIsMember] = useState(false);
 
   const addDebug = (msg) => {
     console.log(msg);
@@ -50,7 +51,23 @@ export default function PaymentSuccess() {
       if (result.data && result.data.success) {
         addDebug(`SUCCESS! Created ${result.data.bookings?.length || 0} bookings`);
         setStatus("success");
-        setMessage("Your booking has been confirmed!");
+
+        // Member prime bookings live in member_bookings (no customer_* fields),
+        // so skip the regular confirmation pipeline and route to the portal.
+        const memberBooking = result.data.kind === "member";
+        setIsMember(memberBooking);
+        setMessage(
+          memberBooking
+            ? "Your prime member session is reserved!"
+            : "Your booking has been confirmed!"
+        );
+
+        if (memberBooking) {
+          setTimeout(() => {
+            navigate(createPageUrl("MemberBookings"));
+          }, 3000);
+          return;
+        }
 
         // Send a confirmation email + SMS for each booked bay. Best-effort:
         // never block the success UI on message delivery.
@@ -106,17 +123,19 @@ export default function PaymentSuccess() {
             </div>
             <CardContent className="p-8 text-center">
               <p className="text-slate-600 mb-6">
-                A confirmation email is on its way with everything you need to know. See you on the tee!
+                {isMember
+                  ? "A card hold is in place at your member rate — no charge until you check in. See you on the tee!"
+                  : "A confirmation email is on its way with everything you need to know. See you on the tee!"}
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Button
-                  onClick={() => navigate(createPageUrl("MyReservations"))}
+                  onClick={() => navigate(createPageUrl(isMember ? "MemberBookings" : "MyReservations"))}
                   className="h-12 px-6 text-base font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29] rounded-xl"
                 >
-                  View My Reservations
+                  {isMember ? "Back to Member Portal" : "View My Reservations"}
                 </Button>
                 <Button
-                  onClick={() => navigate(createPageUrl("BookSimulator"))}
+                  onClick={() => navigate(createPageUrl(isMember ? "MemberBookings" : "BookSimulator"))}
                   variant="outline"
                   className="h-12 px-6 text-base font-bold rounded-xl border-2"
                 >

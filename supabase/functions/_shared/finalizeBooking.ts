@@ -22,7 +22,7 @@ export function readBookingData(metadata: Record<string, string> | null): any {
 }
 
 type FinalizeResult =
-  | { success: true; bookings: any[]; alreadyProcessed?: boolean }
+  | { success: true; bookings: any[]; alreadyProcessed?: boolean; kind?: 'member' | 'regular' }
   | { success: false; conflict?: true; error: string };
 
 // Single source of truth for turning a completed Checkout Session into booking
@@ -45,6 +45,11 @@ export async function finalizeBookingFromSession(
   const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
   if (paymentIntent.status !== 'requires_capture' && paymentIntent.status !== 'succeeded') {
     return { success: false, error: `Payment not authorized. Status: ${paymentIntent.status}` };
+  }
+
+  // Prime member bookings are finalized into member_bookings, not bookings.
+  if ((session.metadata as Record<string, string>)?.booking_kind === 'member') {
+    return finalizeMemberBooking(stripe, session, db, paymentIntentId);
   }
 
   const bookingData = readBookingData(session.metadata as Record<string, string>);
@@ -138,6 +143,86 @@ export async function finalizeBookingFromSession(
   }
 
   return { success: true, bookings: created };
+}
+
+// Turn a completed prime-member checkout into a member_booking row. Idempotent
+// (keyed on stripe_payment_id), re-checks conflicts across both booking tables,
+// and releases the hold if the bay was taken in the meantime.
+async function finalizeMemberBooking(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  db: ReturnType<typeof serviceClient>,
+  paymentIntentId: string
+): Promise<FinalizeResult> {
+  const d = readBookingData(session.metadata as Record<string, string>);
+
+  // Idempotency: already created for this payment intent?
+  const { data: existing } = await db
+    .from('member_bookings')
+    .select('*')
+    .eq('stripe_payment_id', paymentIntentId);
+  if (existing && existing.length > 0) {
+    return { success: true, bookings: existing, alreadyProcessed: true, kind: 'member' };
+  }
+
+  // Conflict re-check across regular + member bookings.
+  const s = toMinutes(d.startTime);
+  const e = toMinutes(d.endTime);
+  const [{ data: reg }, { data: mem }] = await Promise.all([
+    db.from('bookings').select('start_time,end_time,status,simulator_id')
+      .eq('simulator_id', d.simulatorId).eq('booking_date', d.date).neq('status', 'cancelled'),
+    db.from('member_bookings').select('start_time,end_time,status,simulator_id')
+      .eq('simulator_id', d.simulatorId).eq('booking_date', d.date).neq('status', 'cancelled')
+  ]);
+  const clash = [...(reg || []), ...(mem || [])].some(
+    (b: any) => s < toMinutes(b.end_time) && e > toMinutes(b.start_time)
+  );
+  if (clash) {
+    await releaseHold(stripe, paymentIntentId);
+    return {
+      success: false,
+      conflict: true,
+      error: 'Sorry, that bay was just booked by someone else. Your card hold has been released — please choose another time.'
+    };
+  }
+
+  const { data: created, error } = await db
+    .from('member_bookings')
+    .insert({
+      membership_id: d.membershipId,
+      member_email: d.memberEmail,
+      member_name: d.memberName,
+      simulator_id: d.simulatorId,
+      simulator_name: d.simulatorName,
+      location: d.location,
+      booking_date: d.date,
+      start_time: d.startTime,
+      end_time: d.endTime,
+      duration_hours: d.durationHours,
+      total_cost: d.totalCost,
+      status: 'confirmed',
+      check_in_status: 'not_arrived',
+      included: false,
+      is_prime: true,
+      guest_pass_used: !!d.wantsGuest,
+      payment_status: 'authorized',
+      stripe_payment_id: paymentIntentId,
+      is_exclusive_hours: false
+    })
+    .select();
+  if (error) {
+    // Concurrent insert for the same PI?
+    const { data: now } = await db
+      .from('member_bookings')
+      .select('*')
+      .eq('stripe_payment_id', paymentIntentId);
+    if (now && now.length > 0) {
+      return { success: true, bookings: now, alreadyProcessed: true, kind: 'member' };
+    }
+    throw error;
+  }
+
+  return { success: true, bookings: created, kind: 'member' };
 }
 
 async function releaseHold(stripe: Stripe, paymentIntentId: string) {

@@ -112,6 +112,8 @@ export default function MemberBookings() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [seatEmail, setSeatEmail] = useState("");
+  const [seatBusy, setSeatBusy] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -123,8 +125,15 @@ export default function MemberBookings() {
       const user = await base44.auth.me();
       setCurrentUser(user);
 
-      const memberships = await base44.entities.Membership.filter({ user_email: user.email });
-      const active = memberships.find((m) => m.status === "active");
+      // RLS only returns memberships this user can see (owner OR authorized
+      // corporate account holder), so list() naturally scopes to the caller.
+      const email = (user.email || "").toLowerCase();
+      const isMine = (m) =>
+        (m.user_email || "").toLowerCase() === email ||
+        (Array.isArray(m.authorized_emails) &&
+          m.authorized_emails.map((e) => (e || "").toLowerCase()).includes(email));
+      const memberships = await base44.entities.Membership.list();
+      const active = memberships.find((m) => m.status === "active" && isMine(m));
       if (!active) {
         alert("No active membership found. Please sign up for a membership first.");
         navigate(createPageUrl("MemberSignup"));
@@ -135,7 +144,9 @@ export default function MemberBookings() {
       const [bays, regularBookings, memBookings] = await Promise.all([
         base44.entities.Simulator.filter({ location: active.location, is_active: true }),
         base44.entities.Booking.list(),
-        base44.entities.MemberBooking.filter({ member_email: user.email })
+        // Shared pool: usage is tracked per membership_id (covers corporate
+        // multi-seat too), NOT per member email.
+        base44.entities.MemberBooking.filter({ membership_id: active.id })
       ]);
       setAllBays(bays);
       setAllBookings(regularBookings);
@@ -147,6 +158,36 @@ export default function MemberBookings() {
   };
 
   const plan = membership ? getPlan(membership.membership_level) : null;
+  const isOwner =
+    membership &&
+    currentUser &&
+    (membership.user_email || "").toLowerCase() === (currentUser.email || "").toLowerCase();
+  const seatCap = plan?.accountHolders || 1;
+  const authorizedEmails = Array.isArray(membership?.authorized_emails) ? membership.authorized_emails : [];
+  const showSeatsCard = isOwner && seatCap > 1;
+
+  const manageSeat = async (action, email) => {
+    setSeatBusy(true);
+    try {
+      const res = await base44.functions.invoke("manageCorporateSeats", {
+        membershipId: membership.id,
+        action,
+        email
+      });
+      const d = res.data || {};
+      if (!d.success) {
+        alert(d.error || "Could not update seats.");
+      } else {
+        setSeatEmail("");
+        await loadData();
+      }
+    } catch (error) {
+      console.error("Seat management error:", error);
+      alert("Something went wrong updating seats.");
+    }
+    setSeatBusy(false);
+  };
+
   const hoursUsed = plan ? hoursUsedInPeriod(plan, memberBookings) : 0;
   const hoursRemaining = plan ? Math.max(0, plan.hours - hoursUsed) : 0;
   const passesUsed = plan ? guestPassesUsedInPeriod(plan, memberBookings) : 0;
@@ -196,6 +237,36 @@ export default function MemberBookings() {
     setIsSearching(false);
   };
 
+  // Send the member to Stripe to place an authorization hold for a prime
+  // (non-covered / over-allotment) booking at their member rate.
+  const startPrimeCheckout = async () => {
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+    const endTime = calculateEndTime(selectedTime, duration);
+    const origin = window.location.origin;
+    const res = await base44.functions.invoke("createMemberCheckout", {
+      membershipId: membership.id,
+      simulatorId: selectedBay,
+      bookingDate: dateStr,
+      startTime: selectedTime,
+      endTime,
+      durationHours: duration,
+      wantsGuest,
+      successUrl: `${origin}${createPageUrl("PaymentSuccess")}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}${createPageUrl("MemberBookings")}`
+    });
+    const d = res.data || {};
+    if (d.included) {
+      // Server decided it's actually included — fall back to the free flow.
+      return submitBooking(false);
+    }
+    if (!d.url) {
+      alert(d.error || "Could not start checkout.");
+      setIsSubmitting(false);
+      return;
+    }
+    window.location.href = d.url;
+  };
+
   const submitBooking = async (acceptPrime) => {
     setIsSubmitting(true);
     try {
@@ -213,15 +284,19 @@ export default function MemberBookings() {
       });
       const d = res.data || {};
 
-      if (d.needsPrimeConfirmation && !acceptPrime) {
-        setIsSubmitting(false);
+      // Prime slot: confirm, then route to Stripe for an authorization hold at
+      // the member rate (paid online, not at the desk).
+      if (d.needsPrimeConfirmation) {
         const ok = window.confirm(
-          `${d.error}\n\nBook as prime time for $${Number(d.totalCost).toFixed(
+          `${d.error}\n\nReserve as prime time for $${Number(d.totalCost).toFixed(
             2
-          )} (${plan.name} member rate), paid at the front desk?`
+          )} (${plan.name} member rate)? You'll place a card hold now — no charge until you check in.`
         );
-        if (ok) return submitBooking(true);
-        return;
+        if (!ok) {
+          setIsSubmitting(false);
+          return;
+        }
+        return startPrimeCheckout();
       }
 
       if (!d.success) {
@@ -230,11 +305,7 @@ export default function MemberBookings() {
         return;
       }
 
-      alert(
-        d.included
-          ? "Booked! This session is included in your membership. 🏌️"
-          : `Booked as prime time — $${Number(d.totalCost).toFixed(2)} due at the front desk.`
-      );
+      alert("Booked! This session is included in your membership. 🏌️");
       setSelectedDate(null);
       setSelectedTime("");
       setSelectedBay("");
@@ -330,6 +401,67 @@ export default function MemberBookings() {
           <p className="text-sm text-slate-500 mt-3">
             <span className="font-semibold">Your included hours:</span> {describeWindows(plan)}
           </p>
+
+          {showSeatsCard && (
+            <Card className="mt-4 border-2 border-indigo-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="w-4 h-4 text-indigo-600" /> Account Holders
+                  <span className="text-sm font-normal text-slate-500">
+                    ({authorizedEmails.length + 1} of {seatCap} seats used)
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-slate-500">
+                  Add co-workers to share your corporate hour pool and guest passes. They sign in with their own
+                  account and draw from the same monthly allotment.
+                </p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-lg border bg-slate-50 px-3 py-2 text-sm">
+                    <span className="font-medium">{membership.user_email}</span>
+                    <Badge variant="outline" className="text-xs">
+                      Owner
+                    </Badge>
+                  </div>
+                  {authorizedEmails.map((e) => (
+                    <div key={e} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+                      <span>{e}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={seatBusy}
+                        onClick={() => manageSeat("remove", e)}
+                        className="text-red-600 hover:text-red-700 h-7"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {authorizedEmails.length + 1 < seatCap ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={seatEmail}
+                      onChange={(ev) => setSeatEmail(ev.target.value)}
+                      placeholder="teammate@company.com"
+                      className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                    />
+                    <Button
+                      disabled={seatBusy || !seatEmail.trim()}
+                      onClick={() => manageSeat("add", seatEmail.trim())}
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      {seatBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">All seats are in use. Remove one to add another.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">

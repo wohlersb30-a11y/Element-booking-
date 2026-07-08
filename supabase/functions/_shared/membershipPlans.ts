@@ -20,6 +20,7 @@ export interface Plan {
   guestPassPeriod: "week" | "month";
   discount: number;
   coveredWindows: CoveredWindow[] | "anytime";
+  accountHolders?: number;
 }
 
 export const MEMBERSHIP_PLANS: Record<string, Plan> = {
@@ -81,7 +82,8 @@ export const MEMBERSHIP_PLANS: Record<string, Plan> = {
     guestPasses: 0,
     guestPassPeriod: "month",
     discount: 0.25,
-    coveredWindows: "anytime"
+    coveredWindows: "anytime",
+    accountHolders: 5
   }
 };
 
@@ -157,4 +159,28 @@ export function periodBounds(
 export function memberDiscountedRate(baseRate: number, plan: Plan): number {
   const d = plan?.discount || 0;
   return Math.round(baseRate * (1 - d) * 100) / 100;
+}
+
+// Normal (non-member) bay rate for a date/time — mirrors the front-end
+// calculateRate. Used to price prime / additional sim-time bookings.
+// deno-lint-ignore no-explicit-any
+export function baseBayRate(bay: any, date: Date, startTime: string): number {
+  const day = date.getDay();
+  const hour = parseInt(startTime.split(":")[0], 10);
+  const isPeak = (day === 5 && hour >= 15) || day === 0 || day === 6;
+  if (Array.isArray(bay.pricing_rules) && bay.pricing_rules.length > 0) {
+    for (const rule of bay.pricing_rules) {
+      const rs = new Date(rule.start_date);
+      const re = new Date(rule.end_date);
+      if (date >= rs && date <= re) {
+        return isPeak ? Number(rule.peak_rate) : Number(rule.off_peak_rate);
+      }
+    }
+  }
+  if (bay.pricing_off_peak != null && bay.pricing_peak != null) {
+    return isPeak ? Number(bay.pricing_peak) : Number(bay.pricing_off_peak);
+  }
+  const vip = (bay.bay_type || "standard") === "vip";
+  if (vip) return isPeak ? 85 : 65;
+  return isPeak ? 60 : 50;
 }
