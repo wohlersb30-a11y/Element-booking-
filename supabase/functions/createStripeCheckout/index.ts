@@ -2,6 +2,7 @@ import Stripe from 'npm:stripe@14.11.0';
 import { getUser, serviceClient } from '../_shared/clients.ts';
 import { json, preflight } from '../_shared/cors.ts';
 import { stripeForLocation, stripeAccountKey } from '../_shared/stripe.ts';
+import { computeTax } from '../_shared/tax.ts';
 
 // Split the booking JSON into <=480-char metadata values to respect Stripe's
 // 500-char-per-value limit. Reassembled by finalizeBooking via bd_count.
@@ -110,19 +111,40 @@ Deno.serve(async (req) => {
       customerName || ''
     );
 
+    // Minnesota sales tax. `amount` is the pre-tax subtotal; the hold must cover
+    // subtotal + tax, shown to the customer as a separate line item so the
+    // breakdown is transparent. Tax is recomputed here (server = source of truth)
+    // rather than trusting a client-supplied figure.
+    const { rate, tax } = computeTax(amount, bookingData?.location);
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: 'Golf Simulator Booking - Authorization Hold',
-            description: `${bookingData.selectedBays.length} Bay(s) - ${bookingData.date} at ${bookingData.time}`
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'Golf Simulator Booking - Authorization Hold',
+              description: `${bookingData.selectedBays.length} Bay(s) - ${bookingData.date} at ${bookingData.time}`
+            },
+            unit_amount: Math.round(amount * 100)
           },
-          unit_amount: Math.round(amount * 100)
+          quantity: 1
         },
-        quantity: 1
-      }],
+        ...(tax > 0
+          ? [{
+              price_data: {
+                currency: 'usd',
+                product_data: {
+                  name: 'Minnesota Sales Tax',
+                  description: `${(rate * 100).toFixed(3)}% MN sales tax`
+                },
+                unit_amount: Math.round(tax * 100)
+              },
+              quantity: 1
+            }]
+          : [])
+      ],
       mode: 'payment',
       // Attach to the saved Stripe Customer and remember the card for next time.
       // If we couldn't resolve/create a Customer, fall back to just the email so

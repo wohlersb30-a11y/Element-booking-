@@ -20,6 +20,7 @@ import {
   memberDiscountedRate,
   timeToMinutes
 } from "@/config/membershipPlans";
+import { computeTax } from "@/config/tax";
 
 const ALL_TIME_SLOTS = [];
 for (let h = 6; h <= 22; h++) {
@@ -287,8 +288,14 @@ export default function MemberBookings() {
       // Prime slot: confirm, then route to Stripe for an authorization hold at
       // the member rate (paid online, not at the desk).
       if (d.needsPrimeConfirmation) {
+        const { tax: primeTax, total: primeTotal } = computeTax(
+          Number(d.totalCost),
+          membership.location
+        );
         const ok = window.confirm(
           `${d.error}\n\nReserve as prime time for $${Number(d.totalCost).toFixed(
+            2
+          )} + $${primeTax.toFixed(2)} MN sales tax = $${primeTotal.toFixed(
             2
           )} (${plan.name} member rate)? You'll place a card hold now — no charge until you check in.`
         );
@@ -605,7 +612,7 @@ export default function MemberBookings() {
                               <p className="text-sm text-emerald-600 font-semibold mt-1">✓ Included with membership</p>
                             ) : (
                               <p className="text-sm text-amber-700 font-semibold mt-1">
-                                Prime — ${bay.totalCost.toFixed(2)} ({Math.round((plan.discount || 0) * 100)}% member rate)
+                                Prime — ${bay.totalCost.toFixed(2)} + tax ({Math.round((plan.discount || 0) * 100)}% member rate)
                               </p>
                             )}
                           </div>

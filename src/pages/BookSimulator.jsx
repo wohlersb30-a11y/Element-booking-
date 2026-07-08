@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Checkbox } from "@/components/ui/checkbox";
+import { computeTax } from "@/config/tax";
 
 import TimeSelectionForm from "../components/booking/TimeSelectionForm";
 import PlayerCountInput from "../components/booking/PlayerCountInput";
@@ -391,6 +392,11 @@ export default function BookSimulator() {
   const totalBayCost = selectedBays.reduce((sum, bay) => sum + bay.totalCost, 0);
   const totalCost = totalBayCost;
 
+  // Minnesota sales tax on the subtotal — the card hold covers subtotal + tax.
+  // The server (createStripeCheckout) recomputes this as the source of truth;
+  // here we mirror it so the on-screen "hold" figures match the real hold.
+  const { tax: salesTax, total: totalWithTax } = computeTax(totalBayCost, selectedLocation);
+
   // The time the customer is actually booking (closest available if their exact
   // time was full) and its matching end time, for clear on-screen display.
   const effectiveTime = bookingTime || selectedTime;
@@ -625,7 +631,10 @@ export default function BookSimulator() {
                       <Alert className="bg-blue-50 border-blue-200">
                         <DollarSign className="h-5 w-5 text-blue-600 flex-shrink-0" />
                         <AlertDescription className="text-blue-800 text-base font-medium">
-                          Authorization hold (not a charge): <span className="font-bold text-xl">${totalBayCost.toFixed(2)}</span>
+                          Authorization hold (not a charge): <span className="font-bold text-xl">${totalWithTax.toFixed(2)}</span>
+                          <span className="block text-sm font-normal text-blue-700 mt-1">
+                            ${totalBayCost.toFixed(2)} + ${salesTax.toFixed(2)} MN sales tax
+                          </span>
                         </AlertDescription>
                       </Alert>
 
@@ -774,9 +783,9 @@ export default function BookSimulator() {
         <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-sm border-t border-slate-200 shadow-2xl px-4 py-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-bold text-slate-800 text-sm truncate">
-              {totalBaysSelected} bay{totalBaysSelected > 1 ? "s" : ""} • ${totalBayCost.toFixed(2)} hold
+              {totalBaysSelected} bay{totalBaysSelected > 1 ? "s" : ""} • ${totalWithTax.toFixed(2)} hold
             </p>
-            <p className="text-xs text-emerald-700 font-medium">Not charged today</p>
+            <p className="text-xs text-emerald-700 font-medium">Incl. tax · Not charged today</p>
           </div>
           <Button
             type="button"
@@ -806,7 +815,7 @@ export default function BookSimulator() {
               <h3 className="text-2xl font-black text-white heading-font">Bay added! 🏌️</h3>
               <p className="text-blue-50 mt-1">
                 {totalBaysSelected} bay{totalBaysSelected > 1 ? "s" : ""} · {formatTimeLabel(effectiveTime)}
-                {totalBayCost > 0 ? ` · $${totalBayCost.toFixed(2)} hold` : ""}
+                {totalBayCost > 0 ? ` · $${totalWithTax.toFixed(2)} hold` : ""}
               </p>
             </div>
             <div className="p-6 space-y-3">

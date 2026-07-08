@@ -1,6 +1,7 @@
 import { getUser, serviceClient } from '../_shared/clients.ts';
 import { json, preflight } from '../_shared/cors.ts';
 import { stripeForLocation } from '../_shared/stripe.ts';
+import { computeTax } from '../_shared/tax.ts';
 import { getPlan, timeToMinutes } from '../_shared/membershipPlans.ts';
 import {
   memberEmailAllowed,
@@ -112,6 +113,10 @@ Deno.serve(async (req) => {
       wantsGuest: !!wantsGuest
     };
 
+    // Minnesota sales tax on the discounted prime rate, shown as a separate
+    // line item so the member sees the breakdown before authorizing the hold.
+    const { rate, tax } = computeTax(cov.totalCost, membership.location);
+
     const stripe = stripeForLocation(membership.location);
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -126,7 +131,20 @@ Deno.serve(async (req) => {
             unit_amount: Math.round(cov.totalCost * 100)
           },
           quantity: 1
-        }
+        },
+        ...(tax > 0
+          ? [{
+              price_data: {
+                currency: 'usd',
+                product_data: {
+                  name: 'Minnesota Sales Tax',
+                  description: `${(rate * 100).toFixed(3)}% MN sales tax`
+                },
+                unit_amount: Math.round(tax * 100)
+              },
+              quantity: 1
+            }]
+          : [])
       ],
       mode: 'payment',
       customer_email: user.email,

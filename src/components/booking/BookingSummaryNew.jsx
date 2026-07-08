@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Clock, DollarSign, MapPin, Users, MessageSquare, CreditCard } from "lucide-react";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { computeTax } from "@/config/tax";
 
 const formatTime = (time24) => {
   const [hours, minutes] = time24.split(':').map(Number);
@@ -57,6 +58,9 @@ export default function BookingSummaryNew({
   
   const totalBays = selectedBays.reduce((sum, bay) => sum + bay.quantity, 0);
   const effectivePlayerCount = playerCount || 1;
+
+  // totalCost is the pre-tax subtotal; add Minnesota sales tax and hold the sum.
+  const { rate: taxRate, tax, total: totalWithTax } = computeTax(totalCost, location);
 
   return (
     <Card className="bg-gradient-to-br from-[#2d5567] to-[#1e3a47] text-white shadow-xl">
@@ -140,12 +144,20 @@ export default function BookingSummaryNew({
               <span className="flex-shrink-0">${(bayInfo.totalCost * bayInfo.quantity).toFixed(2)}</span>
             </div>
           ))}
+          <div className="flex justify-between text-sm gap-2 pt-2 border-t border-white/20">
+            <span className="opacity-80">Subtotal</span>
+            <span className="flex-shrink-0">${totalCost.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-sm gap-2">
+            <span className="opacity-80">Sales tax ({(taxRate * 100).toFixed(3)}%)</span>
+            <span className="flex-shrink-0">${tax.toFixed(2)}</span>
+          </div>
           <div className="flex items-center justify-between pt-2 border-t border-white/20">
             <div className="flex items-center gap-2">
               <DollarSign className="w-5 h-5" />
               <span className="font-semibold text-base sm:text-lg">Hold Amount</span>
             </div>
-            <span className="text-2xl sm:text-3xl font-bold">${totalCost.toFixed(2)}</span>
+            <span className="text-2xl sm:text-3xl font-bold">${totalWithTax.toFixed(2)}</span>
           </div>
         </div>
       </CardContent>
