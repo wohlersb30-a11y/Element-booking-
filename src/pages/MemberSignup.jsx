@@ -3,73 +3,35 @@ import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Crown, Star, Sparkles, Award, Loader2 } from "lucide-react";
+import { Check, Crown, Star, Award, Gem, Building2, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { MEMBERSHIP_PLANS, PLAN_ORDER } from "@/config/membershipPlans";
 
-const MEMBERSHIP_TIERS = [
-  {
-    id: "bronze",
-    name: "Bronze",
-    icon: Award,
-    color: "from-amber-600 to-amber-700",
-    price: 99,
-    features: [
-      "6am-9am access during peak season (Oct-May)",
-      "1 hour sessions",
-      "Book up to 7 days in advance",
-      "Standard bay access"
-    ]
-  },
-  {
-    id: "silver",
-    name: "Silver",
-    icon: Star,
-    color: "from-slate-400 to-slate-600",
-    price: 149,
-    features: [
-      "6am-9am access during peak season (Oct-May)",
-      "1.5 hour sessions",
-      "Book up to 14 days in advance",
-      "Standard + VIP bay access",
-      "10% off food & beverage"
-    ],
-    popular: true
-  },
-  {
-    id: "gold",
-    name: "Gold",
-    icon: Sparkles,
-    color: "from-yellow-400 to-yellow-600",
-    price: 199,
-    features: [
-      "6am-9am access during peak season (Oct-May)",
-      "2 hour sessions",
-      "Book up to 30 days in advance",
-      "Priority bay selection",
-      "15% off food & beverage",
-      "Bring 1 guest for free"
-    ]
-  },
-  {
-    id: "platinum",
-    name: "Platinum",
-    icon: Crown,
-    color: "from-purple-500 to-indigo-600",
-    price: 299,
-    features: [
-      "6am-9am access during peak season (Oct-May)",
-      "Unlimited session length",
-      "Book up to 60 days in advance",
-      "VIP bay priority access",
-      "20% off food & beverage",
-      "Bring up to 3 guests for free",
-      "Dedicated support line"
-    ]
-  }
-];
+const TIER_STYLE = {
+  junior: { icon: Award, color: "from-emerald-500 to-emerald-700" },
+  silver: { icon: Star, color: "from-slate-400 to-slate-600" },
+  platinum: { icon: Crown, color: "from-purple-500 to-indigo-600" },
+  diamond: { icon: Gem, color: "from-cyan-400 to-blue-600" },
+  corporate: { icon: Building2, color: "from-slate-700 to-slate-900" }
+};
+
+const MEMBERSHIP_TIERS = PLAN_ORDER.map((id) => {
+  const plan = MEMBERSHIP_PLANS[id];
+  const period = plan.hoursPeriod === "week" ? "week" : "month";
+  return {
+    id,
+    name: plan.name,
+    icon: TIER_STYLE[id].icon,
+    color: TIER_STYLE[id].color,
+    price: plan.price,
+    priceUnit: plan.priceUnit,
+    popular: !!plan.recommended,
+    features: [`${plan.hours} hours / ${period} included (Oct–Apr)`, ...plan.perks]
+  };
+});
 
 export default function MemberSignup() {
   const navigate = useNavigate();
@@ -186,7 +148,7 @@ export default function MemberSignup() {
             Become a <span className="bg-gradient-to-r from-purple-600 to-indigo-600 text-transparent bg-clip-text">Member</span>
           </h1>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-            Exclusive 6am-9am access during peak season (October - May)
+            Unlimited summer play · included sim-time hours Oct–April · guest passes & member rates
           </p>
         </div>
 
@@ -203,7 +165,7 @@ export default function MemberSignup() {
           </Select>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
           {MEMBERSHIP_TIERS.map((tier) => {
             const Icon = tier.icon;
             const isSelected = selectedTier === tier.id;
@@ -227,8 +189,8 @@ export default function MemberSignup() {
                   <Icon className="w-12 h-12 mb-3" />
                   <CardTitle className="text-2xl font-bold">{tier.name}</CardTitle>
                   <div className="mt-4">
-                    <span className="text-4xl font-black">${tier.price}</span>
-                    <span className="text-sm opacity-90">/month</span>
+                    <span className="text-4xl font-black">${tier.price.toLocaleString()}</span>
+                    <span className="text-sm opacity-90">/{tier.priceUnit}</span>
                   </div>
                 </CardHeader>
                 <CardContent className="p-6">
@@ -259,7 +221,7 @@ export default function MemberSignup() {
                   Processing...
                 </>
               ) : (
-                `Sign Up for ${MEMBERSHIP_TIERS.find(t => t.id === selectedTier)?.name} - $${MEMBERSHIP_TIERS.find(t => t.id === selectedTier)?.price}/mo`
+                `Sign Up for ${MEMBERSHIP_TIERS.find(t => t.id === selectedTier)?.name} - $${MEMBERSHIP_TIERS.find(t => t.id === selectedTier)?.price.toLocaleString()}/${MEMBERSHIP_TIERS.find(t => t.id === selectedTier)?.priceUnit}`
               )}
             </Button>
           </div>
