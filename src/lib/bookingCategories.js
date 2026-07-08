@@ -37,32 +37,33 @@ export const BOOKING_CATEGORIES = [
     dot: "bg-teal-500",
     block: "bg-teal-500 hover:bg-teal-600 text-white",
     border: "border-teal-700"
-  },
-  {
-    key: "manual",
-    label: "Front desk / other",
-    dot: "bg-yellow-400",
-    block: "bg-yellow-400 hover:bg-yellow-500 text-slate-900",
-    border: "border-yellow-600"
   }
 ];
 
 const BY_KEY = Object.fromEntries(BOOKING_CATEGORIES.map((c) => [c.key, c]));
 
-// Classify a booking row into one of the category keys above. Member bookings
-// are tagged when merged into the schedule (booking_type === 'member'); the rest
-// are inferred from the regular Booking fields.
+// The types staff can pick from when entering a manual booking. Kept in sync
+// with BOOKING_CATEGORIES so the dropdown and the legend never drift.
+export const RESERVATION_TYPE_OPTIONS = BOOKING_CATEGORIES.map((c) => ({
+  value: c.key,
+  label: c.label
+}));
+
+// Classify a booking row into one of the category keys above. Order of
+// precedence: member rows merged into the schedule, then an explicit staff-
+// chosen reservation_type, then inference from the online booking fields.
+// Anything unlabeled falls back to "public".
 export function classifyBooking(b) {
-  if (!b) return "manual";
+  if (!b) return "public";
   if (b.booking_type === "member" || b.is_member) return "member";
+  if (b.reservation_type && BY_KEY[b.reservation_type]) return b.reservation_type;
   if (b.special_id) return "special";
   if (b.payment_method === "banked_hours" || b.is_banked) return "banked";
-  if (b.payment_method === "credit_card") return "public";
-  return "manual";
+  return "public";
 }
 
 export function categoryStyle(b) {
-  return BY_KEY[classifyBooking(b)] || BY_KEY.manual;
+  return BY_KEY[classifyBooking(b)] || BY_KEY.public;
 }
 
 // Normalize a member_bookings row into the shape DailyScheduleView expects for a

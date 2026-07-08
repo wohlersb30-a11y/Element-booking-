@@ -13,6 +13,7 @@ import { format, addDays, addWeeks, addMonths } from "date-fns";
 
 import { sendBookingConfirmation } from "../booking/BookingConfirmationEmail";
 import { sendBookingConfirmationSMS } from "../booking/BookingConfirmationSMS";
+import { RESERVATION_TYPE_OPTIONS } from "@/lib/bookingCategories";
 
 const TIME_SLOTS = [
   { value: "09:00", label: "9:00 AM" },
@@ -163,6 +164,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     start_time: preselectedTime || "",
     duration_hours: 1,
     number_of_players: 1,
+    reservation_type: "",
     payment_method: "pay_at_venue",
     payment_status: "pending",
     notes: "",
@@ -206,6 +208,12 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!formData.reservation_type) {
+      alert("Please select a reservation type.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -248,6 +256,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         duration_hours: formData.duration_hours,
         total_cost: cost,
         number_of_players: formData.number_of_players,
+        reservation_type: formData.reservation_type,
         payment_method: formData.payment_method,
         payment_status: formData.payment_status,
         status: "confirmed",
@@ -453,6 +462,28 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
               />
             </div>
           </div>
+        </div>
+
+        {/* Reservation type — required so the schedule colors it correctly */}
+        <div className="space-y-2">
+          <Label htmlFor="reservation-type">
+            Reservation Type <span className="text-red-500">*</span>
+          </Label>
+          <Select
+            value={formData.reservation_type}
+            onValueChange={(value) => setFormData({ ...formData, reservation_type: value })}
+          >
+            <SelectTrigger id="reservation-type" className="h-12">
+              <SelectValue placeholder="Select reservation type" />
+            </SelectTrigger>
+            <SelectContent>
+              {RESERVATION_TYPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Players and Payment */}
