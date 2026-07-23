@@ -21,6 +21,7 @@ import {
   timeToMinutes
 } from "@/config/membershipPlans";
 import { computeTax } from "@/config/tax";
+import { trackInitiateCheckout } from "@/lib/metaPixel";
 
 const ALL_TIME_SLOTS = [];
 for (let h = 6; h <= 22; h++) {
@@ -240,7 +241,7 @@ export default function MemberBookings() {
 
   // Send the member to Stripe to place an authorization hold for a prime
   // (non-covered / over-allotment) booking at their member rate.
-  const startPrimeCheckout = async () => {
+  const startPrimeCheckout = async (checkoutValue) => {
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     const endTime = calculateEndTime(selectedTime, duration);
     const origin = window.location.origin;
@@ -265,6 +266,11 @@ export default function MemberBookings() {
       setIsSubmitting(false);
       return;
     }
+    trackInitiateCheckout({
+      value: typeof checkoutValue === "number" ? checkoutValue : undefined,
+      contentType: "booking",
+      numItems: 1
+    });
     window.location.href = d.url;
   };
 
@@ -303,7 +309,7 @@ export default function MemberBookings() {
           setIsSubmitting(false);
           return;
         }
-        return startPrimeCheckout();
+        return startPrimeCheckout(primeTotal);
       }
 
       if (!d.success) {

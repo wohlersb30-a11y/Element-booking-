@@ -32,7 +32,12 @@ Deno.serve(async (req) => {
       bookings: result.bookings,
       alreadyProcessed: result.alreadyProcessed ?? false,
       kind: result.kind ?? 'regular',
-      hourPackage: result.hourPackage ?? null
+      hourPackage: result.hourPackage ?? null,
+      // Authoritative conversion value for the Meta Pixel Purchase event.
+      // amount_total is in the smallest currency unit (cents); convert to dollars.
+      amountTotal:
+        typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+      currency: (session.currency || 'usd').toUpperCase()
     });
   } catch (error) {
     console.error('verifyStripePayment error:', error.message);

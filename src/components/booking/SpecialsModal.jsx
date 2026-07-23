@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { X, Sparkles, Loader2, CheckCircle2, Clock, Tag, AlertCircle, ChevronLeft } from "lucide-react";
 import { format } from "date-fns";
+import { computeTax } from "@/config/tax";
+import { trackInitiateCheckout } from "@/lib/metaPixel";
 
 const ALL_TIME_SLOTS = [
   "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
@@ -144,6 +146,11 @@ export default function SpecialsModal({
       });
 
       if (result.data && result.data.url) {
+        trackInitiateCheckout({
+          value: computeTax(Number(selectedSpecial.price) || 0, location).total,
+          contentType: "booking",
+          numItems: 1
+        });
         if (window.top) {
           window.top.location.href = result.data.url;
         } else {

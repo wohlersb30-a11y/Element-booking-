@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { createPageUrl } from "@/utils";
 import { sendBookingConfirmation } from "@/components/booking/BookingConfirmationEmail";
 import { sendBookingConfirmationSMS } from "@/components/booking/BookingConfirmationSMS";
+import { trackPurchase } from "@/lib/metaPixel";
 
 const LOGO_URL =
   "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68dc695d7506a437cb8f84c0/0ff61e822_Element_Final_Logos_RGB-01.jpg";
@@ -52,6 +53,17 @@ export default function PaymentSuccess() {
       if (result.data && result.data.success) {
         addDebug(`SUCCESS! Created ${result.data.bookings?.length || 0} bookings`);
         setStatus("success");
+
+        // Meta Pixel conversion. Dedupe on the Stripe session id so a page
+        // refresh (which re-runs this handler) and any future server-side CAPI
+        // event collapse into a single Purchase. Value = the authoritative
+        // Stripe amount_total (incl. MN sales tax) returned by the server.
+        trackPurchase({
+          value: result.data.amountTotal ?? undefined,
+          currency: result.data.currency || "USD",
+          contentType: result.data.kind === "package" ? "product" : "booking",
+          eventId: sessionId
+        });
 
         // Banked-hours package purchases credit the ledger — no booking, no
         // confirmation email pipeline. Route to the hours page.

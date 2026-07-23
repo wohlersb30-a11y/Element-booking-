@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { HOUR_PACKAGES } from "@/config/hourPackages";
 import { computeTax } from "@/config/tax";
+import { trackInitiateCheckout } from "@/lib/metaPixel";
 
 const LOCATIONS = [
   { value: "vadnais_heights", label: "Vadnais Heights" },
@@ -44,6 +45,11 @@ export default function BuyHours() {
       });
       const d = res.data || {};
       if (d.url) {
+        trackInitiateCheckout({
+          value: computeTax(pkg.price, location).total,
+          contentType: "product",
+          numItems: 1
+        });
         window.location.href = d.url;
         return;
       }

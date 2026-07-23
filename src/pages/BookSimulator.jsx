@@ -13,6 +13,7 @@ import { motion } from "framer-motion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { computeTax } from "@/config/tax";
 import { isPeakSlot, coveringKinds } from "@/config/hourPackages";
+import { trackInitiateCheckout } from "@/lib/metaPixel";
 
 import TimeSelectionForm from "../components/booking/TimeSelectionForm";
 import PlayerCountInput from "../components/booking/PlayerCountInput";
@@ -263,6 +264,11 @@ export default function BookSimulator() {
       const d = res.data || {};
 
       if (d.needsSurcharge && d.url) {
+        trackInitiateCheckout({
+          value: computeTax(d.surcharge || 0, selectedLocation).total,
+          contentType: "booking",
+          numItems: 1
+        });
         if (window.top) window.top.location.href = d.url;
         else window.location.href = d.url;
         return;
@@ -463,6 +469,13 @@ export default function BookSimulator() {
       });
 
       if (result.data && result.data.url) {
+        // Funnel signal: customer is heading to Stripe Checkout. Value mirrors
+        // the card hold (subtotal + MN sales tax).
+        trackInitiateCheckout({
+          value: computeTax(totalBookingCost, selectedLocation).total,
+          contentType: "booking",
+          numItems: selectedBays.length
+        });
         // Use window.top to break out of iframe
         if (window.top) {
           window.top.location.href = result.data.url;
