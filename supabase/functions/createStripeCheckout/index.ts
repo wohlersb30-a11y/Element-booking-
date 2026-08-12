@@ -4,21 +4,6 @@ import { json, preflight } from '../_shared/cors.ts';
 import { stripeForLocation, stripeAccountKey } from '../_shared/stripe.ts';
 import { computeTax } from '../_shared/tax.ts';
 
-// Split the booking JSON into <=480-char metadata values to respect Stripe's
-// 500-char-per-value limit. Reassembled by finalizeBooking via bd_count.
-function chunkBookingData(bookingData: unknown): Record<string, string> {
-  const json = JSON.stringify(bookingData);
-  const size = 480;
-  const out: Record<string, string> = {};
-  let count = 0;
-  for (let i = 0; i < json.length; i += size) {
-    out[`bd_${count}`] = json.slice(i, i + size);
-    count++;
-  }
-  out.bd_count = String(count);
-  return out;
-}
-
 // Reuse the customer's Stripe Customer across bookings (creating one the first
 // time) so their saved card is offered at checkout on return visits. Customer
 // objects are per-account, so we namespace the id by the booking's Stripe
@@ -139,6 +124,18 @@ Deno.serve(async (req) => {
     // rather than trusting a client-supplied figure.
     const { rate, tax } = computeTax(amount, bookingData?.location);
 
+    // Stage the full booking payload server-side and reference it by a short
+    // token in Stripe metadata (avoids Stripe's metadata size limits). If this
+    // write fails we abort before creating any hold.
+    const bookingRef = crypto.randomUUID();
+    const { error: refErr } = await db
+      .from('pending_checkouts')
+      .insert({ token: bookingRef, data: bookingData });
+    if (refErr) {
+      console.error('pending_checkouts insert failed:', refErr.message);
+      return json({ error: 'Could not start checkout. Please try again.' }, { status: 500 });
+    }
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -184,11 +181,11 @@ Deno.serve(async (req) => {
           booking_time: bookingData.time
         }
       },
-      // Stripe caps each metadata value at 500 chars, so chunk the booking JSON
-      // (bd_count + bd_0..bd_n) — reassembled in finalizeBooking. Avoids checkout
-      // failures on big group bookings or long notes.
+      // The full booking payload lives in pending_checkouts (see bookingRef
+      // above); metadata carries only the short reference token so we never hit
+      // Stripe's 50-key / 500-char metadata caps on large bookings or long notes.
       metadata: {
-        ...chunkBookingData(bookingData),
+        bd_ref: bookingRef,
         customerName: String(customerName ?? '').slice(0, 480),
         // Tie the eventual booking to the authenticated user for RLS ownership.
         customerId: user.id

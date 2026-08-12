@@ -9,10 +9,14 @@ import { Search, X, Calendar, Phone, Mail, MapPin, Loader2 } from "lucide-react"
 import { format } from "date-fns";
 
 const formatTime = (time24) => {
-  const [hours, minutes] = time24.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
+  if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
+  const [h, m] = time24.split(":");
+  const hours = Number(h);
+  const minutes = Number(m);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return "";
+  const period = hours >= 12 ? "PM" : "AM";
   const hours12 = hours % 12 || 12;
-  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 };
 
 // Format a digits-only phone as (XXX) XXX-XXXX when it's a 10-digit US number.

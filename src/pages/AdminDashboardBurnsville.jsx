@@ -110,9 +110,9 @@ export default function AdminDashboardBurnsville() {
     try {
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
       const [allBookings, allBlocks, allMemberBookings] = await Promise.all([
-        Booking.list(),
-        ScheduleBlock.list(),
-        base44.entities.MemberBooking.list()
+        Booking.list().catch(() => []),
+        ScheduleBlock.list().catch(() => []),
+        base44.entities.MemberBooking.list().catch(() => [])
       ]);
 
       const dateBookings = allBookings.filter(

@@ -7,11 +7,25 @@ const toMinutes = (t: string) => {
   return h * 60 + m;
 };
 
-// Reassemble bookingData from Checkout Session metadata. We store it as chunks
-// (bd_count + bd_0..bd_n) to stay under Stripe's 500-char-per-value limit, with
-// a fallback to the legacy single `bookingData` key.
-export function readBookingData(metadata: Record<string, string> | null): any {
+// Recover the booking payload for a Checkout Session. New sessions store the
+// payload in pending_checkouts and put only a short token (bd_ref) in metadata,
+// so metadata stays tiny. Older/in-flight sessions may still carry the payload
+// as chunks (bd_count + bd_0..bd_n) or the legacy single `bookingData` key —
+// both remain supported for backward compatibility.
+export async function readBookingData(
+  metadata: Record<string, string> | null,
+  db: ReturnType<typeof serviceClient>
+): Promise<any> {
   if (!metadata) throw new Error('No metadata on session');
+  if (metadata.bd_ref) {
+    const { data, error } = await db
+      .from('pending_checkouts')
+      .select('data')
+      .eq('token', metadata.bd_ref)
+      .single();
+    if (error || !data) throw new Error('Booking data not found for checkout reference');
+    return data.data;
+  }
   if (metadata.bd_count) {
     const n = parseInt(metadata.bd_count, 10);
     let s = '';
@@ -64,7 +78,7 @@ export async function finalizeBookingFromSession(
     return finalizeBankedBooking(stripe, session, db, paymentIntentId);
   }
 
-  const bookingData = readBookingData(session.metadata as Record<string, string>);
+  const bookingData = await readBookingData(session.metadata as Record<string, string>, db);
   const customerId = (session.metadata?.customerId as string) || opts.fallbackUserId || null;
 
   // Idempotency: bookings already created for this payment intent? Return them.
@@ -166,7 +180,7 @@ async function finalizeMemberBooking(
   db: ReturnType<typeof serviceClient>,
   paymentIntentId: string
 ): Promise<FinalizeResult> {
-  const d = readBookingData(session.metadata as Record<string, string>);
+  const d = await readBookingData(session.metadata as Record<string, string>, db);
 
   // Idempotency: already created for this payment intent?
   const { data: existing } = await db

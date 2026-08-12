@@ -111,10 +111,12 @@ export default function AdminDashboardVadnaisHeights() {
   const loadBookingsForDate = async () => {
     try {
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
+      // Degrade gracefully: one failing query (e.g. member bookings) shouldn't
+      // blank the whole schedule.
       const [allBookings, allBlocks, allMemberBookings] = await Promise.all([
-        Booking.list(),
-        ScheduleBlock.list(),
-        base44.entities.MemberBooking.list()
+        Booking.list().catch(() => []),
+        ScheduleBlock.list().catch(() => []),
+        base44.entities.MemberBooking.list().catch(() => [])
       ]);
 
       const dateBookings = allBookings.filter(

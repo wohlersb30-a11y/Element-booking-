@@ -20,8 +20,12 @@ export default function NotesInput({ notes, onChange }) {
           onChange={(e) => onChange(e.target.value)}
           placeholder="Equipment needs, food & beverage requests, or other details..."
           rows={3}
+          maxLength={500}
           className="text-sm sm:text-base border-[#2d5567]/20 focus:ring-[#2d5567] w-full"
         />
+        <p className="text-xs text-slate-400 mt-1 text-right">
+          {500 - (notes?.length || 0)} characters left
+        </p>
       </CardContent>
     </Card>
   );
