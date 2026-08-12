@@ -1,6 +1,7 @@
 import type Stripe from 'npm:stripe@14.11.0';
 import { serviceClient } from './clients.ts';
 import { applyDebitPlan } from './bankedHours.ts';
+import { sendEmail } from './email.ts';
 
 const toMinutes = (t: string) => {
   const [h, m] = String(t).split(':').map(Number);
@@ -168,6 +169,22 @@ export async function finalizeBookingFromSession(
     throw error;
   }
 
+  await notifyOwnerNewBooking({
+    kind: 'online',
+    customerName: bookingData.customerName,
+    customerEmail: bookingData.customerEmail,
+    customerPhone: bookingData.customerPhone,
+    location: bookingData.location,
+    date: bookingData.date,
+    startTime: bookingData.time,
+    endTime: bookingData.endTime,
+    bays: (bookingData.selectedBays || []).map((b: any) => b.bayName),
+    players: bookingData.playerCount,
+    total: (created || []).reduce((sum: number, r: any) => sum + (Number(r.total_cost) || 0), 0),
+    paymentMethod: 'Credit card',
+    notes: bookingData.notes
+  });
+
   return { success: true, bookings: created };
 }
 
@@ -247,6 +264,19 @@ async function finalizeMemberBooking(
     }
     throw error;
   }
+
+  await notifyOwnerNewBooking({
+    kind: 'prime member',
+    customerName: d.memberName,
+    customerEmail: d.memberEmail,
+    location: d.location,
+    date: d.date,
+    startTime: d.startTime,
+    endTime: d.endTime,
+    bays: d.simulatorName ? [d.simulatorName] : [],
+    total: d.totalCost,
+    paymentMethod: d.wantsGuest ? 'Member (guest pass)' : 'Member'
+  });
 
   return { success: true, bookings: created, kind: 'member' };
 }
@@ -399,6 +429,22 @@ async function finalizeBankedBooking(
     note: `Booked ${d.simulatorName} ${d.bookingDate} ${d.startTime} (VIP)`
   });
 
+  await notifyOwnerNewBooking({
+    kind: 'VIP banked hours',
+    customerName: d.customerName,
+    customerEmail: d.customerEmail,
+    customerPhone: d.customerPhone,
+    location: d.location,
+    date: d.bookingDate,
+    startTime: d.startTime,
+    endTime: d.endTime,
+    bays: d.simulatorName ? [d.simulatorName] : [],
+    players: d.playerCount,
+    total: created.total_cost,
+    paymentMethod: 'Banked hours',
+    notes: d.notes
+  });
+
   return { success: true, bookings: [created] };
 }
 
@@ -407,5 +453,90 @@ async function releaseHold(stripe: Stripe, paymentIntentId: string) {
     await stripe.paymentIntents.cancel(paymentIntentId);
   } catch (err) {
     console.error('Failed to release hold:', (err as any).message);
+  }
+}
+
+const LOCATION_LABELS: Record<string, string> = {
+  vadnais_heights: 'Vadnais Heights',
+  burnsville: 'Burnsville'
+};
+
+function prettyLocation(loc?: string | null): string {
+  if (!loc) return 'Unknown location';
+  return LOCATION_LABELS[loc] || loc;
+}
+
+function prettyTime(t?: string | null): string {
+  if (!t || typeof t !== 'string' || !t.includes(':')) return String(t ?? '');
+  const [h, m] = t.split(':');
+  const hours = Number(h);
+  const minutes = Number(m);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return t;
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+// Early-days internal alert: email the owner whenever a new booking is created,
+// so they can keep an eye on activity while the app is young. Best-effort only —
+// wrapped so an email hiccup can never fail the booking itself. The recipient is
+// overridable via OWNER_NOTIFY_EMAIL; leave it unset to disable these alerts.
+async function notifyOwnerNewBooking(summary: {
+  kind: string;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+  location?: string | null;
+  date?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  bays?: string[];
+  players?: number | null;
+  total?: number | null;
+  paymentMethod?: string | null;
+  notes?: string | null;
+}): Promise<void> {
+  try {
+    const to = Deno.env.get('OWNER_NOTIFY_EMAIL') ?? 'bradley@elementindoorgolf.com';
+    if (!to) return;
+
+    const loc = prettyLocation(summary.location);
+    const when = `${summary.date ?? ''} · ${prettyTime(summary.startTime)} – ${prettyTime(summary.endTime)}`;
+    const bays = summary.bays && summary.bays.length ? summary.bays.join(', ') : '—';
+    const total =
+      typeof summary.total === 'number' && !Number.isNaN(summary.total)
+        ? `$${summary.total.toFixed(2)}`
+        : '—';
+
+    const row = (label: string, value: string) =>
+      `<tr><td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap;">${label}</td>` +
+      `<td style="padding:4px 0;color:#0f172a;font-weight:600;">${value}</td></tr>`;
+
+    const body = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;">
+        <h2 style="color:#2d5567;margin:0 0 4px;">New booking (${summary.kind})</h2>
+        <p style="color:#64748b;margin:0 0 16px;">${loc}</p>
+        <table style="border-collapse:collapse;font-size:14px;">
+          ${row('Customer', summary.customerName || '—')}
+          ${row('Email', summary.customerEmail || '—')}
+          ${row('Phone', summary.customerPhone || '—')}
+          ${row('When', when)}
+          ${row('Bay(s)', bays)}
+          ${row('Players', summary.players != null ? String(summary.players) : '—')}
+          ${row('Payment', summary.paymentMethod || '—')}
+          ${row('Total', total)}
+          ${summary.notes ? row('Notes', summary.notes) : ''}
+        </table>
+      </div>`;
+
+    const result = await sendEmail({
+      from_name: 'Element Bookings',
+      to,
+      subject: `New booking — ${summary.customerName || 'guest'} · ${loc} · ${summary.date ?? ''}`,
+      body
+    });
+    if (result.error) console.error('Owner booking alert failed:', result.error);
+  } catch (err) {
+    console.error('Owner booking alert threw:', (err as any).message);
   }
 }
