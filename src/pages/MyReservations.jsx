@@ -416,7 +416,11 @@ export default function MyReservations() {
                           {!canCancel(booking) && (
                             <p className="text-xs text-slate-500 mt-2 sm:text-right">
                               Within 24 hours of your tee time — to change or cancel,
-                              please give us a call and we'll gladly help.
+                              please call us at{" "}
+                              <a href="tel:+16513301699" className="font-medium text-[#2d5567] hover:underline whitespace-nowrap">
+                                (651) 330-1699
+                              </a>{" "}
+                              and we'll gladly help.
                             </p>
                           )}
                         </div>
@@ -512,7 +516,11 @@ export default function MyReservations() {
             <DialogHeader>
               <DialogTitle className="text-lg sm:text-xl">Reschedule Booking</DialogTitle>
               <DialogDescription className="text-base">
-                To reschedule your booking, please give us a call or make a new booking and we'll cancel this one.
+                To reschedule your booking, please call us at{" "}
+                <a href="tel:+16513301699" className="font-medium text-[#2d5567] hover:underline whitespace-nowrap">
+                  (651) 330-1699
+                </a>{" "}
+                or make a new booking and we'll cancel this one.
               </DialogDescription>
             </DialogHeader>
             <div className="flex gap-3 mt-4">
