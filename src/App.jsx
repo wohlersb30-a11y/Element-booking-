@@ -1,8 +1,9 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from '@/lib/SupabaseAuthContext';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -91,13 +92,24 @@ const AuthenticatedApp = () => {
 };
 
 
+// Wraps the routed app in the error boundary, keyed by pathname so a crash on
+// one page auto-recovers as soon as the user navigates elsewhere.
+const RoutedApp = () => {
+  const location = useLocation();
+  return (
+    <ErrorBoundary resetKey={location.pathname}>
+      <AuthenticatedApp />
+    </ErrorBoundary>
+  );
+};
+
 function App() {
 
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
         <Router>
-          <AuthenticatedApp />
+          <RoutedApp />
         </Router>
         <Toaster />
       </QueryClientProvider>

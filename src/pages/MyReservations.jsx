@@ -27,11 +27,23 @@ import {
 } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Defensive: never throw on a missing/malformed time string.
 const formatTime = (time24) => {
-  const [hours, minutes] = time24.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
+  if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
+  const [h, m] = time24.split(":");
+  const hours = Number(h);
+  const minutes = Number(m);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return "";
+  const period = hours >= 12 ? "PM" : "AM";
   const hours12 = hours % 12 || 12;
-  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+};
+
+// Defensive date formatting — returns "" instead of throwing on invalid dates.
+const fmtDate = (value, pattern) => {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : format(d, pattern);
 };
 
 const getPaymentMethodLabel = (method) => {
@@ -163,7 +175,7 @@ export default function MyReservations() {
       ["Confirmation ID", String(booking.id || "—")],
       ["Bay", getBayDisplayName(booking.simulator_name)],
       ["Location", booking.location || "—"],
-      ["Date", format(new Date(booking.booking_date), "EEEE, MMMM d, yyyy")],
+      ["Date", fmtDate(booking.booking_date, "EEEE, MMMM d, yyyy")],
       ["Time", `${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`],
       ["Duration", durationText(booking.duration_hours)],
       ["Players", String(booking.number_of_players || 1)],
@@ -304,7 +316,7 @@ export default function MyReservations() {
                         <div className="flex items-center gap-3 text-slate-600 text-sm sm:text-base">
                           <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d5567] flex-shrink-0" />
                           <span className="font-medium">
-                            {format(new Date(booking.booking_date), "EEE, MMM d, yyyy")}
+                            {fmtDate(booking.booking_date, "EEE, MMM d, yyyy")}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-slate-600 text-sm sm:text-base">
@@ -445,7 +457,7 @@ export default function MyReservations() {
                     <div className="flex items-center gap-3 text-sm">
                       <Calendar className="w-4 h-4 flex-shrink-0" />
                       <span>
-                        {format(new Date(booking.booking_date), "MMM d, yyyy")}
+                        {fmtDate(booking.booking_date, "MMM d, yyyy")}
                       </span>
                     </div>
                     <div className="flex items-center gap-3 text-sm">
