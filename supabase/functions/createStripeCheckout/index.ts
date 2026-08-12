@@ -102,6 +102,28 @@ Deno.serve(async (req) => {
     const stripe = stripeForLocation(bookingData?.location);
 
     const db = serviceClient();
+
+    // Guard: if an admin has fully closed this location's tee sheet, online
+    // booking is off. Block here so a stale/cached page can't create a hold.
+    if (bookingData?.location) {
+      const { data: closures } = await db
+        .from('tee_sheet_closures')
+        .select('reason')
+        .eq('location', bookingData.location)
+        .eq('is_active', true)
+        .limit(1);
+      if (closures && closures.length > 0) {
+        return json(
+          {
+            error:
+              closures[0].reason ||
+              'Online booking for this location is temporarily closed. Please check back soon.'
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const customerId = await getOrCreateCustomer(
       stripe,
       db,

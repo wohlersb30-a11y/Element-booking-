@@ -23,6 +23,7 @@ import SmartScheduleOptimizer from "../components/admin/SmartScheduleOptimizer";
 import LocationSwitcher from "../components/admin/LocationSwitcher";
 import CustomerLookup from "../components/admin/CustomerLookup";
 import DailyReportSummary from "../components/admin/DailyReportSummary";
+import TeeSheetCloser from "../components/admin/TeeSheetCloser";
 
 export default function AdminDashboardBurnsville() {
   const navigate = useNavigate();
@@ -201,6 +202,7 @@ export default function AdminDashboardBurnsville() {
   return (
     <div className="min-h-screen p-3 sm:p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
+        <TeeSheetCloser location="burnsville" className="mb-4" />
         <div className="mb-6 sm:mb-8">
           <div className="flex flex-col gap-4 mb-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

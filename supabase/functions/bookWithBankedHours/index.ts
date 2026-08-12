@@ -44,6 +44,24 @@ Deno.serve(async (req) => {
     const db = serviceClient();
     const email = (user.email || '').toLowerCase();
 
+    // Guard: block if an admin has fully closed this location's tee sheet.
+    const { data: closures } = await db
+      .from('tee_sheet_closures')
+      .select('reason')
+      .eq('location', location)
+      .eq('is_active', true)
+      .limit(1);
+    if (closures && closures.length > 0) {
+      return json(
+        {
+          error:
+            closures[0].reason ||
+            'Online booking for this location is temporarily closed. Please check back soon.'
+        },
+        { status: 400 }
+      );
+    }
+
     const { data: bay } = await db.from('simulators').select('*').eq('id', simulatorId).single();
     if (!bay) return json({ error: 'Bay not found.' }, { status: 404 });
     if (bay.location !== location) {

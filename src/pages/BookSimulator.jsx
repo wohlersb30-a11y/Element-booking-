@@ -146,6 +146,10 @@ export default function BookSimulator() {
   const [allBays, setAllBays] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [allSpecials, setAllSpecials] = useState([]);
+  // Active full tee-sheet closures (admin turned online booking off for a
+  // location). When the selected location has one, we hide the booking flow and
+  // show the friendly reason instead.
+  const [closures, setClosures] = useState([]);
   const [showSpecials, setShowSpecials] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
@@ -221,6 +225,12 @@ export default function BookSimulator() {
     };
   }, [customerEmail, selectedLocation, showSuccess]);
 
+  // The active closure (if any) for the location the customer has selected.
+  // When present, online booking is turned off and we show a friendly message.
+  const locationClosure = selectedLocation
+    ? closures.find((c) => c.location === selectedLocation) || null
+    : null;
+
   // Can the single selected bay's booking be fully covered by banked hours?
   const bankedEligible = (() => {
     if (selectedBays.length !== 1) return false;
@@ -237,6 +247,10 @@ export default function BookSimulator() {
   const handleBankedBooking = async () => {
     if (selectedBays.length !== 1) {
       alert("Banked hours apply to a single-bay booking. Please select just one bay.");
+      return;
+    }
+    if (closures.some((c) => c.location === selectedLocation)) {
+      alert("Online booking for this location is temporarily closed. Please check back soon.");
       return;
     }
     setBankedBusy(true);
@@ -295,13 +309,15 @@ export default function BookSimulator() {
         setCustomerName(currentUser.full_name);
       }
       
-      const [bays, bookings, specials] = await Promise.all([
+      const [bays, bookings, specials, activeClosures] = await Promise.all([
         base44.entities.Simulator.list(),
         base44.entities.Booking.list(),
-        base44.entities.Special.list().catch(() => [])
+        base44.entities.Special.list().catch(() => []),
+        base44.entities.TeeSheetClosure.filter({ is_active: true }).catch(() => [])
       ]);
 
       setAllSpecials(specials || []);
+      setClosures(activeClosures || []);
       
       const activeBays = bays.filter(b => b.is_active);
       
@@ -328,6 +344,8 @@ export default function BookSimulator() {
 
   const handleSearch = async () => {
     if (!selectedDate || !selectedTime || !selectedLocation) return;
+    // Location's tee sheet is fully closed — don't run availability.
+    if (closures.some((c) => c.location === selectedLocation)) return;
 
     setIsSearching(true);
     setHasSearched(true);
@@ -416,7 +434,12 @@ export default function BookSimulator() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    if (closures.some((c) => c.location === selectedLocation)) {
+      alert("Online booking for this location is temporarily closed. Please check back soon.");
+      return;
+    }
+
     if (selectedBays.length === 0) {
       alert("Please select at least one bay.");
       return;
@@ -578,7 +601,39 @@ export default function BookSimulator() {
               }}
             />
 
-            {selectedLocation && availableSpecials.length > 0 && (
+            {locationClosure && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="bg-white/90 backdrop-blur-sm shadow-2xl border-0 overflow-hidden">
+                  <div className="h-2 bg-gradient-to-r from-[#2d5567] to-[#3d6577]" />
+                  <CardContent className="p-8 sm:p-12 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-[#2d5567]/10 flex items-center justify-center mx-auto mb-5">
+                      <Clock className="w-8 h-8 text-[#2d5567]" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-slate-800 mb-3 heading-font">
+                      Online booking is paused right now
+                    </h3>
+                    {locationClosure.reason ? (
+                      <p className="text-slate-600 text-lg max-w-xl mx-auto">
+                        {locationClosure.reason}
+                      </p>
+                    ) : (
+                      <p className="text-slate-600 text-lg max-w-xl mx-auto">
+                        We're temporarily closed for online booking at this location.
+                        We can't wait to welcome you back soon!
+                      </p>
+                    )}
+                    <p className="text-slate-400 text-sm mt-5">
+                      Please check back later or give us a call — thank you for your patience!
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {selectedLocation && !locationClosure && availableSpecials.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -593,7 +648,7 @@ export default function BookSimulator() {
               </motion.div>
             )}
 
-            {selectedLocation && (
+            {selectedLocation && !locationClosure && (
               <TimeSelectionForm
                 selectedDate={selectedDate}
                 selectedTime={selectedTime}
@@ -605,7 +660,7 @@ export default function BookSimulator() {
               />
             )}
 
-            {selectedLocation && isSearching && (
+            {selectedLocation && !locationClosure && isSearching && (
               <Card className="bg-white/90 backdrop-blur-sm shadow-2xl border-0">
                 <CardContent className="p-12 sm:p-16 text-center">
                   <Loader2 className="w-12 h-12 animate-spin text-[#2d5567] mx-auto mb-4" />
@@ -614,7 +669,7 @@ export default function BookSimulator() {
               </Card>
             )}
 
-            {selectedLocation && hasSearched && !isSearching && (
+            {selectedLocation && !locationClosure && hasSearched && !isSearching && (
               <Card className="bg-white/90 backdrop-blur-sm shadow-2xl border-0 overflow-hidden">
                 <div className="bg-gradient-to-r from-[#2d5567] to-[#1e3a47] p-6">
                   <CardTitle className="text-2xl sm:text-3xl text-white font-bold heading-font flex items-center gap-3">
