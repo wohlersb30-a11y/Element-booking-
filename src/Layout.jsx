@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Calendar, ClipboardList, Menu, X, LogOut, Crown, Clock, Ticket, Users } from "lucide-react";
+import { Calendar, ClipboardList, Menu, X, LogOut, Crown, Clock, Ticket, Users, Shield } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -57,6 +57,12 @@ const navigationItems = [
     url: createPageUrl("MemberBookings"),
     icon: Crown,
     roles: CUSTOMER_ROLES,
+  },
+  {
+    title: "Admin Home",
+    url: createPageUrl("Admin"),
+    icon: Shield,
+    roles: ["admin"],
   },
   {
     title: "Vadnais Heights Admin",
@@ -232,12 +238,24 @@ export default function Layout({ children, currentPageName }) {
                 className="h-12 w-auto object-contain"
               />
             </div>
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors active:scale-95"
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6 text-slate-700" /> : <Menu className="w-6 h-6 text-slate-700" />}
-            </button>
+            <div className="flex items-center gap-2">
+              {currentUser?.role === "admin" && (
+                <Link
+                  to={createPageUrl("Admin")}
+                  aria-label="Admin Home"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#2d5567] text-white text-sm font-semibold active:scale-95 transition-transform"
+                >
+                  <Shield className="w-5 h-5" />
+                  Admin
+                </Link>
+              )}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors active:scale-95"
+              >
+                {mobileMenuOpen ? <X className="w-6 h-6 text-slate-700" /> : <Menu className="w-6 h-6 text-slate-700" />}
+              </button>
+            </div>
           </div>
 
           {/* Mobile Menu */}
