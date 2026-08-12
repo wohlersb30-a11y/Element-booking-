@@ -18,6 +18,7 @@ import MemberBookings from './pages/MemberBookings';
 import BuyHours from './pages/BuyHours';
 import MyHours from './pages/MyHours';
 import AdminHours from './pages/AdminHours';
+import Customers from './pages/Customers';
 // Add page imports here
 
 const Spinner = () => (
@@ -77,6 +78,7 @@ const AuthenticatedApp = () => {
       <Route path="/BuyHours" element={<BuyHours />} />
       <Route path="/MyHours" element={<MyHours />} />
       <Route path="/AdminHours" element={<AdminRoute><AdminHours /></AdminRoute>} />
+      <Route path="/Customers" element={<AdminRoute><Customers /></AdminRoute>} />
       <Route path="/ResetPassword" element={<ResetPassword />} />
       <Route path="/Login" element={<Navigate to="/" replace />} />
       <Route path="/Signup" element={<Navigate to="/" replace />} />

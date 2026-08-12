@@ -6,6 +6,9 @@
 # Base44 data export (contains customer PII — never commit)
 /base44-export
 
+# Legacy customer contact CSVs (PII — never commit)
+/Customer Database
+
 # Logs
 /logs
 *.log
