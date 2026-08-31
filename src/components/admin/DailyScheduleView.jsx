@@ -132,6 +132,7 @@ export default function DailyScheduleView({
   blocks = [],
   onBookingClick,
   onTimeSlotClick,
+  onBlockClick,
   onReload
 }) {
   // Grid columns follow the location's operating hours (defaults to 9 AM–11 PM,
@@ -496,7 +497,11 @@ export default function DailyScheduleView({
                                             minWidth: `${span * HOUR_WIDTH}px`
                                           }}
                                         >
-                                          <div className="absolute inset-0 bg-slate-400 text-white p-2 overflow-hidden flex flex-col justify-center">
+                                          <div
+                                            className={`absolute inset-0 bg-slate-400 text-white p-2 overflow-hidden flex flex-col justify-center ${onBlockClick ? 'cursor-pointer hover:bg-slate-500 transition-colors' : ''}`}
+                                            onClick={onBlockClick ? () => onBlockClick(block) : undefined}
+                                            title={onBlockClick ? "Click to edit or remove this block" : undefined}
+                                          >
                                             <div className="text-[10px] font-semibold uppercase">{block.reason}</div>
                                             {block.notes && (
                                               <div className="text-[9px] opacity-90 truncate">{block.notes}</div>

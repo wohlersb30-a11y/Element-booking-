@@ -15,6 +15,7 @@ import DailyScheduleView from "../components/admin/DailyScheduleView";
 import ManualBookingForm from "../components/admin/ManualBookingForm";
 import BookingDetailModal from "../components/admin/BookingDetailModal";
 import BlockScheduleForm from "../components/admin/BlockScheduleForm";
+import EditBlockModal from "../components/admin/EditBlockModal";
 import PricingManager from "../components/admin/PricingManager";
 import SpecialsManager from "../components/admin/SpecialsManager";
 import AdminAnalytics from "../components/admin/AdminAnalytics";
@@ -28,6 +29,7 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [showManualBooking, setShowManualBooking] = useState(false);
   const [showBlockForm, setShowBlockForm] = useState(false);
+  const [editingBlock, setEditingBlock] = useState(null);
   const [showPricing, setShowPricing] = useState(false);
   const [showSpecials, setShowSpecials] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -339,6 +341,7 @@ export default function AdminDashboard() {
           simulators={simulators}
           onBookingClick={handleBookingClick}
           onTimeSlotClick={handleTimeSlotClick}
+          onBlockClick={setEditingBlock}
           onReload={loadBookingsForDate}
         />
 
@@ -372,6 +375,23 @@ export default function AdminDashboard() {
                 onClose={() => setShowBlockForm(false)}
                 onComplete={handleBlockComplete}
                 initialDate={selectedDate}
+              />
+            </div>
+          </div>
+        )}
+
+        {editingBlock && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <EditBlockModal
+                block={editingBlock}
+                simulators={simulators}
+                location={editingBlock.location}
+                onClose={() => setEditingBlock(null)}
+                onComplete={() => {
+                  setEditingBlock(null);
+                  loadBookingsForDate();
+                }}
               />
             </div>
           </div>
