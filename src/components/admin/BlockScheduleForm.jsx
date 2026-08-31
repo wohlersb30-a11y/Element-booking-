@@ -1,14 +1,31 @@
 
 import React, { useState } from "react";
 import { ScheduleBlock } from "@/entities/ScheduleBlock";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, AlertTriangle } from "lucide-react";
 import { format, eachDayOfInterval } from "date-fns";
+
+const toMinutes = (t) => {
+  if (!t || typeof t !== "string" || !t.includes(":")) return NaN;
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+
+const prettyTime = (t) => {
+  const mins = toMinutes(t);
+  if (Number.isNaN(mins)) return String(t ?? "");
+  const hours = Math.floor(mins / 60);
+  const minutes = mins % 60;
+  const period = hours >= 12 ? "PM" : "AM";
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+};
 
 const TIME_SLOTS = [
   { value: "09:00", label: "9:00 AM" },
@@ -60,6 +77,10 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   // Which bays to block. Empty = none selected yet.
   const [selectedBayIds, setSelectedBayIds] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Existing customer bookings that fall inside the requested block window.
+  // When non-empty we pause and make the admin confirm before writing blocks.
+  const [conflicts, setConflicts] = useState([]);
+  const [pendingRows, setPendingRows] = useState(null);
 
   const sortedSimulators = [...simulators].sort((a, b) => {
     const aIsVIP = a.bay_type === "vip";
@@ -82,51 +103,119 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
     );
   };
 
+  const buildRows = () => {
+    // Every day in the (inclusive) range; falls back to a single day when no
+    // end date is chosen.
+    const start = dateRange.from;
+    const end = dateRange.to || dateRange.from;
+    const days = eachDayOfInterval({ start, end });
+
+    const baysToBlock = simulators.filter((s) => selectedBayIds.includes(s.id));
+
+    // One block row per bay × per day.
+    const rows = [];
+    for (const day of days) {
+      const formattedDate = format(day, "yyyy-MM-dd");
+      for (const bay of baysToBlock) {
+        rows.push({
+          simulator_id: bay.id,
+          simulator_name: bay.name,
+          location: location,
+          block_date: formattedDate,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          reason: formData.reason,
+          notes: formData.notes
+        });
+      }
+    }
+    return rows;
+  };
+
+  // Find existing customer bookings (regular + prime member) that overlap the
+  // requested block window, so the admin isn't surprised to be blocking over
+  // people who already reserved those bays.
+  const findConflicts = async (rows) => {
+    const bayIds = [...new Set(rows.map((r) => r.simulator_id))];
+    const dates = [...new Set(rows.map((r) => r.block_date))];
+    const blockStart = toMinutes(formData.start_time);
+    const blockEnd = toMinutes(formData.end_time);
+
+    const [{ data: reg }, { data: mem }] = await Promise.all([
+      supabase
+        .from("bookings")
+        .select("simulator_id, simulator_name, customer_name, booking_date, start_time, end_time, status")
+        .in("simulator_id", bayIds)
+        .in("booking_date", dates)
+        .neq("status", "cancelled"),
+      supabase
+        .from("member_bookings")
+        .select("simulator_id, simulator_name, member_name, booking_date, start_time, end_time, status")
+        .in("simulator_id", bayIds)
+        .in("booking_date", dates)
+        .neq("status", "cancelled")
+    ]);
+
+    const overlaps = (b) =>
+      blockStart < toMinutes(b.end_time) && blockEnd > toMinutes(b.start_time);
+
+    const found = [];
+    for (const b of reg || []) {
+      if (overlaps(b)) found.push({ ...b, who: b.customer_name || "Customer" });
+    }
+    for (const b of mem || []) {
+      if (overlaps(b)) found.push({ ...b, who: `${b.member_name || "Member"} (member)` });
+    }
+    // Sort by date then start time for a readable list.
+    found.sort((a, c) =>
+      a.booking_date === c.booking_date
+        ? toMinutes(a.start_time) - toMinutes(c.start_time)
+        : a.booking_date.localeCompare(c.booking_date)
+    );
+    return found;
+  };
+
+  const createBlocks = async (rows) => {
+    setIsSubmitting(true);
+    try {
+      await ScheduleBlock.bulkCreate(rows);
+      onComplete();
+    } catch (error) {
+      console.error("Error creating block:", error);
+      alert("Error creating block. Please try again.");
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setConflicts([]);
+    setPendingRows(null);
 
     try {
-      // Every day in the (inclusive) range; falls back to a single day when no
-      // end date is chosen.
-      const start = dateRange.from;
-      const end = dateRange.to || dateRange.from;
-      const days = eachDayOfInterval({ start, end });
-
-      const baysToBlock = simulators.filter((s) => selectedBayIds.includes(s.id));
-
-      // One block row per bay × per day.
-      const rows = [];
-      for (const day of days) {
-        const formattedDate = format(day, "yyyy-MM-dd");
-        for (const bay of baysToBlock) {
-          rows.push({
-            simulator_id: bay.id,
-            simulator_name: bay.name,
-            location: location,
-            block_date: formattedDate,
-            start_time: formData.start_time,
-            end_time: formData.end_time,
-            reason: formData.reason,
-            notes: formData.notes
-          });
-        }
-      }
-
+      const rows = buildRows();
       if (rows.length === 0) {
         alert("Please select at least one bay and a date.");
         setIsSubmitting(false);
         return;
       }
 
-      await ScheduleBlock.bulkCreate(rows);
+      const found = await findConflicts(rows);
+      if (found.length > 0) {
+        // Pause and surface the overlaps; the admin decides via "Block anyway".
+        setConflicts(found);
+        setPendingRows(rows);
+        setIsSubmitting(false);
+        return;
+      }
 
-      onComplete();
+      await createBlocks(rows);
     } catch (error) {
       console.error("Error creating block:", error);
       alert("Error creating block. Please try again.");
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   return (
@@ -267,36 +356,96 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           />
         </div>
 
-        <div className="flex gap-3 pt-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            className="flex-1 h-12"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={
-              isSubmitting ||
-              selectedBayIds.length === 0 ||
-              !dateRange?.from ||
-              !formData.start_time ||
-              !formData.end_time
-            }
-            className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              "Create Block(s)"
-            )}
-          </Button>
-        </div>
+        {conflicts.length > 0 && (
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 space-y-2">
+            <div className="flex items-center gap-2 text-amber-800 font-semibold">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              <span>
+                {conflicts.length} existing booking{conflicts.length === 1 ? "" : "s"} overlap
+                {conflicts.length === 1 ? "s" : ""} this block
+              </span>
+            </div>
+            <p className="text-sm text-amber-700">
+              Blocking won't cancel these reservations — the customers will still be
+              expecting their tee time. Please reach out to them if you proceed.
+            </p>
+            <ul className="text-sm text-amber-900 space-y-1 max-h-40 overflow-y-auto">
+              {conflicts.map((c, i) => (
+                <li key={i} className="flex flex-wrap gap-x-2">
+                  <span className="font-medium">{getBayDisplayName(c.simulator_name)}</span>
+                  <span>·</span>
+                  <span>{c.booking_date}</span>
+                  <span>·</span>
+                  <span>{prettyTime(c.start_time)}–{prettyTime(c.end_time)}</span>
+                  <span>·</span>
+                  <span>{c.who}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {conflicts.length > 0 ? (
+          <div className="flex gap-3 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setConflicts([]);
+                setPendingRows(null);
+              }}
+              className="flex-1 h-12"
+            >
+              Go Back
+            </Button>
+            <Button
+              type="button"
+              onClick={() => createBlocks(pendingRows)}
+              disabled={isSubmitting || !pendingRows}
+              className="flex-1 h-12 bg-amber-600 hover:bg-amber-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Block Anyway"
+              )}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-3 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              className="flex-1 h-12"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                isSubmitting ||
+                selectedBayIds.length === 0 ||
+                !dateRange?.from ||
+                !formData.start_time ||
+                !formData.end_time
+              }
+              className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                "Create Block(s)"
+              )}
+            </Button>
+          </div>
+        )}
       </form>
     </div>
   );
