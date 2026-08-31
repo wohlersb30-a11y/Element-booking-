@@ -86,6 +86,9 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   // block from the start time on the first day to the end time on the last day,
   // with interior days fully blocked.
   const [blockMode, setBlockMode] = useState("daily");
+  // When true, every selected day is blocked open→close and the time pickers /
+  // span-vs-daily choice no longer apply.
+  const [fullDay, setFullDay] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Existing customer bookings that fall inside the requested block window.
   // When non-empty we pause and make the admin confirm before writing blocks.
@@ -126,6 +129,8 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   // close, interior days are fully blocked, and the final day runs from open to
   // the chosen end time. A single-day span is simply start→end that day.
   const windowForDay = (index, lastIndex) => {
+    // Whole-day block: every day runs open→close, regardless of mode.
+    if (fullDay) return { start_time: OPEN_TIME, end_time: CLOSE_TIME };
     if (blockMode === "daily" || lastIndex === 0) {
       return { start_time: formData.start_time, end_time: formData.end_time };
     }
@@ -294,7 +299,17 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           )}
         </div>
 
-        {isMultiDay && (
+        <label className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 cursor-pointer hover:bg-slate-50">
+          <Checkbox checked={fullDay} onCheckedChange={(v) => setFullDay(!!v)} />
+          <span>
+            <span className="block font-semibold text-slate-800">Block entire day</span>
+            <span className="block text-xs text-slate-500">
+              Blocks all hours (open–close){isMultiDay ? " on every selected day" : ""} — no need to pick times.
+            </span>
+          </span>
+        </label>
+
+        {isMultiDay && !fullDay && (
           <div className="space-y-2">
             <Label>How should these days be blocked? *</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -364,6 +379,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           )}
         </div>
 
+        {!fullDay && (
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="start-time">
@@ -407,7 +423,8 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
             </Select>
           </div>
         </div>
-        {effectiveMode === "span" && (
+        )}
+        {!fullDay && effectiveMode === "span" && (
           <p className="text-xs text-slate-500 -mt-2">
             One continuous block: from your start time on {dateRange?.from ? format(dateRange.from, "MMM d") : "the first day"} through
             your end time on {dateRange?.to ? format(dateRange.to, "MMM d") : "the last day"}. Every day in between is blocked all day.
@@ -517,8 +534,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
                 isSubmitting ||
                 selectedBayIds.length === 0 ||
                 !dateRange?.from ||
-                !formData.start_time ||
-                !formData.end_time
+                (!fullDay && (!formData.start_time || !formData.end_time))
               }
               className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
             >
