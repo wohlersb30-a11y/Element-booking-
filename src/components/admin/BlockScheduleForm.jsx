@@ -6,8 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { X, Loader2 } from "lucide-react";
-import { format } from "date-fns";
+import { format, eachDayOfInterval } from "date-fns";
 
 const TIME_SLOTS = [
   { value: "09:00", label: "9:00 AM" },
@@ -46,41 +47,19 @@ const getBayDisplayName = (originalName) => {
 
 export default function BlockScheduleForm({ simulators, onClose, onComplete, initialDate, location }) {
   const [formData, setFormData] = useState({
-    simulator_id: "",
-    block_date: initialDate || new Date(),
     start_time: "",
     end_time: "",
     reason: "league",
     notes: ""
   });
+  // Date range: `to` is optional — when unset the block covers just `from`.
+  const [dateRange, setDateRange] = useState({
+    from: initialDate || new Date(),
+    to: undefined
+  });
+  // Which bays to block. Empty = none selected yet.
+  const [selectedBayIds, setSelectedBayIds] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      const formattedDate = format(formData.block_date, "yyyy-MM-dd");
-      const selectedBay = simulators.find(s => s.id === formData.simulator_id);
-
-      await ScheduleBlock.create({
-        simulator_id: formData.simulator_id,
-        simulator_name: selectedBay.name,
-        location: location,
-        block_date: formattedDate,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
-        reason: formData.reason,
-        notes: formData.notes
-      });
-
-      onComplete();
-    } catch (error) {
-      console.error("Error creating block:", error);
-      alert("Error creating block. Please try again.");
-    }
-    setIsSubmitting(false);
-  };
 
   const sortedSimulators = [...simulators].sort((a, b) => {
     const aIsVIP = a.bay_type === "vip";
@@ -89,6 +68,66 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
     if (!aIsVIP && bIsVIP) return -1;
     return a.name.localeCompare(b.name);
   });
+
+  const allSelected =
+    sortedSimulators.length > 0 && selectedBayIds.length === sortedSimulators.length;
+
+  const toggleAllBays = () => {
+    setSelectedBayIds(allSelected ? [] : sortedSimulators.map((b) => b.id));
+  };
+
+  const toggleBay = (id) => {
+    setSelectedBayIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      // Every day in the (inclusive) range; falls back to a single day when no
+      // end date is chosen.
+      const start = dateRange.from;
+      const end = dateRange.to || dateRange.from;
+      const days = eachDayOfInterval({ start, end });
+
+      const baysToBlock = simulators.filter((s) => selectedBayIds.includes(s.id));
+
+      // One block row per bay × per day.
+      const rows = [];
+      for (const day of days) {
+        const formattedDate = format(day, "yyyy-MM-dd");
+        for (const bay of baysToBlock) {
+          rows.push({
+            simulator_id: bay.id,
+            simulator_name: bay.name,
+            location: location,
+            block_date: formattedDate,
+            start_time: formData.start_time,
+            end_time: formData.end_time,
+            reason: formData.reason,
+            notes: formData.notes
+          });
+        }
+      }
+
+      if (rows.length === 0) {
+        alert("Please select at least one bay and a date.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      await ScheduleBlock.bulkCreate(rows);
+
+      onComplete();
+    } catch (error) {
+      console.error("Error creating block:", error);
+      alert("Error creating block. Please try again.");
+    }
+    setIsSubmitting(false);
+  };
 
   return (
     <div className="p-6">
@@ -101,34 +140,62 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-2">
-          <Label>Date *</Label>
+          <Label>Date(s) *</Label>
+          <p className="text-xs text-slate-500">
+            Pick one day, or click a start and end date to block a range.
+          </p>
           <div className="flex justify-center">
             <Calendar
-              mode="single"
-              selected={formData.block_date}
-              onSelect={(date) => setFormData({...formData, block_date: date})}
+              mode="range"
+              selected={dateRange}
+              onSelect={(range) =>
+                setDateRange(range || { from: undefined, to: undefined })
+              }
+              numberOfMonths={1}
               className="rounded-xl border-2 border-emerald-100"
             />
           </div>
+          {dateRange?.from && (
+            <p className="text-sm text-center text-slate-600">
+              {dateRange.to && format(dateRange.to, "yyyy-MM-dd") !== format(dateRange.from, "yyyy-MM-dd")
+                ? `Blocking ${format(dateRange.from, "MMM d")} – ${format(dateRange.to, "MMM d, yyyy")}`
+                : `Blocking ${format(dateRange.from, "MMM d, yyyy")}`}
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bay">Select Bay *</Label>
-          <Select 
-            value={formData.simulator_id} 
-            onValueChange={(value) => setFormData({...formData, simulator_id: value})}
-          >
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Choose a bay" />
-            </SelectTrigger>
-            <SelectContent>
-              {sortedSimulators.map(bay => (
-                <SelectItem key={bay.id} value={bay.id}>
-                  {getBayDisplayName(bay.name)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center justify-between">
+            <Label>Select Bays *</Label>
+            <button
+              type="button"
+              onClick={toggleAllBays}
+              className="text-sm font-medium text-[#2d5567] hover:underline"
+            >
+              {allSelected ? "Clear all" : "Select all bays"}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 p-3">
+            {sortedSimulators.map((bay) => (
+              <label
+                key={bay.id}
+                className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+              >
+                <Checkbox
+                  checked={selectedBayIds.includes(bay.id)}
+                  onCheckedChange={() => toggleBay(bay.id)}
+                />
+                <span className="text-sm text-slate-700">{getBayDisplayName(bay.name)}</span>
+              </label>
+            ))}
+          </div>
+          {selectedBayIds.length > 0 && (
+            <p className="text-xs text-slate-500">
+              {allSelected
+                ? "All bays selected"
+                : `${selectedBayIds.length} bay${selectedBayIds.length === 1 ? "" : "s"} selected`}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -211,7 +278,13 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           </Button>
           <Button
             type="submit"
-            disabled={isSubmitting || !formData.simulator_id || !formData.start_time || !formData.end_time}
+            disabled={
+              isSubmitting ||
+              selectedBayIds.length === 0 ||
+              !dateRange?.from ||
+              !formData.start_time ||
+              !formData.end_time
+            }
             className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
           >
             {isSubmitting ? (
@@ -220,7 +293,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
                 Creating...
               </>
             ) : (
-              "Create Block"
+              "Create Block(s)"
             )}
           </Button>
         </div>
