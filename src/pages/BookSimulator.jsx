@@ -105,6 +105,52 @@ const isBayAvailable = (bay, date, startTime, duration, existingBookings, blocks
   return !isBlocked;
 };
 
+// Determine whether an ENTIRE operating day is blocked for a location. A day is
+// "fully blocked" only when every bay at the location is covered by admin blocks
+// across the whole operating window (open -> close). If only part of the day (or
+// only some bays) is blocked, customers should still be able to search.
+// Returns { fullyBlocked, reasons } where reasons is a de-duped list of the
+// friendly block reasons involved.
+const getWholeDayBlock = (dateStr, locationBays, blocks, openMin, closeMin) => {
+  const empty = { fullyBlocked: false, reasons: [] };
+  if (!dateStr || !locationBays || locationBays.length === 0) return empty;
+  if (!(closeMin > openMin)) return empty;
+
+  const dayBlocks = (blocks || []).filter(
+    (b) => b.block_date === dateStr && !Number.isNaN(toMinutes(b.start_time)) && !Number.isNaN(toMinutes(b.end_time))
+  );
+  if (dayBlocks.length === 0) return empty;
+
+  const reasons = new Set();
+
+  // A bay is fully covered when the union of its block intervals spans the
+  // entire [openMin, closeMin] operating window with no gaps.
+  const bayFullyCovered = (bayId) => {
+    const intervals = dayBlocks
+      .filter((b) => b.simulator_id === bayId)
+      .map((b) => ({ start: toMinutes(b.start_time), end: toMinutes(b.end_time), reason: b.reason }))
+      .filter((iv) => iv.end > iv.start)
+      .sort((a, b) => a.start - b.start);
+    if (intervals.length === 0) return false;
+
+    let covered = openMin;
+    for (const iv of intervals) {
+      if (iv.start > covered) break; // gap before this interval -> not fully covered
+      if (iv.end > covered) {
+        covered = iv.end;
+        reasons.add(BLOCK_REASON_LABELS[iv.reason] || BLOCK_REASON_LABELS.other);
+      }
+      if (covered >= closeMin) return true;
+    }
+    return covered >= closeMin;
+  };
+
+  const allCovered = locationBays.every((bay) => bayFullyCovered(bay.id));
+  if (!allCovered) return empty;
+
+  return { fullyBlocked: true, reasons: Array.from(reasons) };
+};
+
 const calculateEndTime = (startTime, duration) => {
   const [hours, minutes] = startTime.split(':').map(Number);
   const totalMinutes = hours * 60 + minutes + (duration * 60);
@@ -593,6 +639,19 @@ export default function BookSimulator() {
     return true;
   });
 
+  // When a customer picks a date on which every bay is blocked for the whole
+  // operating day, we skip the search UI entirely and show a "closed" message.
+  // Partial blocks (some bays / part of the day) still allow searching.
+  const dayBlock = selectedDate
+    ? getWholeDayBlock(
+        format(selectedDate, "yyyy-MM-dd"),
+        allBays.filter((bay) => bay.location === selectedLocation),
+        allBlocks,
+        toMinutes(hours.open),
+        toMinutes(closeTimeForDate(selectedDate, hours))
+      )
+    : { fullyBlocked: false, reasons: [] };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -710,6 +769,8 @@ export default function BookSimulator() {
                 onDurationChange={setDuration}
                 onSearch={handleSearch}
                 hours={hours}
+                dayFullyBlocked={dayBlock.fullyBlocked}
+                dayBlockReasons={dayBlock.reasons}
               />
             )}
 

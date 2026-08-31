@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
-import { Calendar as CalendarIcon, Timer } from "lucide-react";
+import { Calendar as CalendarIcon, Timer, Ban } from "lucide-react";
 import {
   DEFAULT_HOURS,
   toMinutes,
@@ -35,7 +35,11 @@ export default function TimeSelectionForm({
   onTimeChange,
   onDurationChange,
   onSearch,
-  hours = DEFAULT_HOURS
+  hours = DEFAULT_HOURS,
+  // When the selected date is fully blocked (every bay closed all day), we hide
+  // the time/duration/search controls and show a "closed" message instead.
+  dayFullyBlocked = false,
+  dayBlockReasons = []
 }) {
   // The bookable window comes from the location's operating hours (open until the
   // close that applies to this date — Sundays can close earlier). Start options
@@ -79,7 +83,21 @@ export default function TimeSelectionForm({
           </div>
         </div>
 
-        {selectedDate && (
+        {selectedDate && dayFullyBlocked && (
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-6 text-center">
+            <Ban className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+            <p className="text-lg font-bold text-slate-800">This day is fully booked</p>
+            <p className="text-slate-600 mt-2">
+              We're closed to online booking for the entire day on this date
+              {dayBlockReasons && dayBlockReasons.length > 0
+                ? ` (${dayBlockReasons.join(", ")})`
+                : ""}
+              . Please choose another date above.
+            </p>
+          </div>
+        )}
+
+        {selectedDate && !dayFullyBlocked && (
           <>
             {/* Start Time */}
             <div className="space-y-3">
