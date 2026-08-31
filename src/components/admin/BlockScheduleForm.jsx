@@ -45,6 +45,12 @@ const TIME_SLOTS = [
   { value: "23:00", label: "11:00 PM" }
 ];
 
+// Day bounds used to fill whole days in a continuous span block: the first day
+// runs from the chosen start time to close, interior days are fully blocked
+// (open→close), and the last day runs from open to the chosen end time.
+const OPEN_TIME = TIME_SLOTS[0].value; // 09:00
+const CLOSE_TIME = TIME_SLOTS[TIME_SLOTS.length - 1].value; // 23:00
+
 const getBayDisplayName = (originalName) => {
   const nameMap = {
     "East 1": "Bay 1",
@@ -76,6 +82,10 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   });
   // Which bays to block. Empty = none selected yet.
   const [selectedBayIds, setSelectedBayIds] = useState([]);
+  // "daily" = same time window on each day (leagues); "span" = one continuous
+  // block from the start time on the first day to the end time on the last day,
+  // with interior days fully blocked.
+  const [blockMode, setBlockMode] = useState("daily");
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Existing customer bookings that fall inside the requested block window.
   // When non-empty we pause and make the admin confirm before writing blocks.
@@ -103,32 +113,55 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
     );
   };
 
+  const isMultiDay =
+    !!dateRange?.from &&
+    !!dateRange?.to &&
+    format(dateRange.to, "yyyy-MM-dd") !== format(dateRange.from, "yyyy-MM-dd");
+  // Span mode only applies to a real multi-day range.
+  const effectiveMode = isMultiDay ? blockMode : "daily";
+
+  // Compute the block window (start/end time) for a given day index within the
+  // range. In "daily" mode every day uses the same chosen window. In "span" mode
+  // the block is continuous: the first day starts at the chosen time and runs to
+  // close, interior days are fully blocked, and the final day runs from open to
+  // the chosen end time. A single-day span is simply start→end that day.
+  const windowForDay = (index, lastIndex) => {
+    if (blockMode === "daily" || lastIndex === 0) {
+      return { start_time: formData.start_time, end_time: formData.end_time };
+    }
+    if (index === 0) return { start_time: formData.start_time, end_time: CLOSE_TIME };
+    if (index === lastIndex) return { start_time: OPEN_TIME, end_time: formData.end_time };
+    return { start_time: OPEN_TIME, end_time: CLOSE_TIME };
+  };
+
   const buildRows = () => {
     // Every day in the (inclusive) range; falls back to a single day when no
     // end date is chosen.
     const start = dateRange.from;
     const end = dateRange.to || dateRange.from;
     const days = eachDayOfInterval({ start, end });
+    const lastIndex = days.length - 1;
 
     const baysToBlock = simulators.filter((s) => selectedBayIds.includes(s.id));
 
-    // One block row per bay × per day.
+    // One block row per bay × per day, using each day's computed window.
     const rows = [];
-    for (const day of days) {
+    days.forEach((day, index) => {
       const formattedDate = format(day, "yyyy-MM-dd");
+      const win = windowForDay(index, lastIndex);
       for (const bay of baysToBlock) {
         rows.push({
           simulator_id: bay.id,
           simulator_name: bay.name,
           location: location,
           block_date: formattedDate,
-          start_time: formData.start_time,
-          end_time: formData.end_time,
+          start_time: win.start_time,
+          end_time: win.end_time,
           reason: formData.reason,
           notes: formData.notes
         });
       }
-    }
+    });
     return rows;
   };
 
@@ -138,8 +171,6 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   const findConflicts = async (rows) => {
     const bayIds = [...new Set(rows.map((r) => r.simulator_id))];
     const dates = [...new Set(rows.map((r) => r.block_date))];
-    const blockStart = toMinutes(formData.start_time);
-    const blockEnd = toMinutes(formData.end_time);
 
     const [{ data: reg }, { data: mem }] = await Promise.all([
       supabase
@@ -156,15 +187,25 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
         .neq("status", "cancelled")
     ]);
 
-    const overlaps = (b) =>
-      blockStart < toMinutes(b.end_time) && blockEnd > toMinutes(b.start_time);
+    const all = [
+      ...(reg || []).map((b) => ({ ...b, who: b.customer_name || "Customer" })),
+      ...(mem || []).map((b) => ({ ...b, who: `${b.member_name || "Member"} (member)` }))
+    ];
 
+    // Compare each existing booking against the specific block window for its
+    // bay + day (windows can differ per day in span mode), so we don't miss or
+    // over-report overlaps.
     const found = [];
-    for (const b of reg || []) {
-      if (overlaps(b)) found.push({ ...b, who: b.customer_name || "Customer" });
-    }
-    for (const b of mem || []) {
-      if (overlaps(b)) found.push({ ...b, who: `${b.member_name || "Member"} (member)` });
+    for (const row of rows) {
+      const bs = toMinutes(row.start_time);
+      const be = toMinutes(row.end_time);
+      for (const b of all) {
+        if (b.simulator_id !== row.simulator_id) continue;
+        if (b.booking_date !== row.block_date) continue;
+        if (bs < toMinutes(b.end_time) && be > toMinutes(b.start_time)) {
+          found.push(b);
+        }
+      }
     }
     // Sort by date then start time for a readable list.
     found.sort((a, c) =>
@@ -246,12 +287,48 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           </div>
           {dateRange?.from && (
             <p className="text-sm text-center text-slate-600">
-              {dateRange.to && format(dateRange.to, "yyyy-MM-dd") !== format(dateRange.from, "yyyy-MM-dd")
+              {isMultiDay
                 ? `Blocking ${format(dateRange.from, "MMM d")} – ${format(dateRange.to, "MMM d, yyyy")}`
                 : `Blocking ${format(dateRange.from, "MMM d, yyyy")}`}
             </p>
           )}
         </div>
+
+        {isMultiDay && (
+          <div className="space-y-2">
+            <Label>How should these days be blocked? *</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setBlockMode("daily")}
+                className={`text-left rounded-xl border-2 p-3 transition-colors ${
+                  effectiveMode === "daily"
+                    ? "border-[#2d5567] bg-[#2d5567]/5"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <span className="block font-semibold text-slate-800">Same time each day</span>
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  e.g. block 5–9 PM every day (leagues, recurring events)
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBlockMode("span")}
+                className={`text-left rounded-xl border-2 p-3 transition-colors ${
+                  effectiveMode === "span"
+                    ? "border-[#2d5567] bg-[#2d5567]/5"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <span className="block font-semibold text-slate-800">Continuous span</span>
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  e.g. Mon 1 PM straight through Wed 4 PM (days in between fully blocked)
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -289,9 +366,11 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="start-time">Start Time *</Label>
-            <Select 
-              value={formData.start_time} 
+            <Label htmlFor="start-time">
+              {effectiveMode === "span" ? "Start Time (first day) *" : "Start Time *"}
+            </Label>
+            <Select
+              value={formData.start_time}
               onValueChange={(value) => setFormData({...formData, start_time: value})}
             >
               <SelectTrigger className="h-12">
@@ -308,9 +387,11 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="end-time">End Time *</Label>
-            <Select 
-              value={formData.end_time} 
+            <Label htmlFor="end-time">
+              {effectiveMode === "span" ? "End Time (last day) *" : "End Time *"}
+            </Label>
+            <Select
+              value={formData.end_time}
               onValueChange={(value) => setFormData({...formData, end_time: value})}
             >
               <SelectTrigger className="h-12">
@@ -326,6 +407,12 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
             </Select>
           </div>
         </div>
+        {effectiveMode === "span" && (
+          <p className="text-xs text-slate-500 -mt-2">
+            One continuous block: from your start time on {dateRange?.from ? format(dateRange.from, "MMM d") : "the first day"} through
+            your end time on {dateRange?.to ? format(dateRange.to, "MMM d") : "the last day"}. Every day in between is blocked all day.
+          </p>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="reason">Reason *</Label>
