@@ -157,7 +157,6 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
       for (const bay of baysToBlock) {
         rows.push({
           simulator_id: bay.id,
-          simulator_name: bay.name,
           location: location,
           block_date: formattedDate,
           start_time: win.start_time,
@@ -228,7 +227,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
       onComplete();
     } catch (error) {
       console.error("Error creating block:", error);
-      alert("Error creating block. Please try again.");
+      alert(`Error creating block: ${error?.message || "Please try again."}`);
       setIsSubmitting(false);
     }
   };
@@ -259,7 +258,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
       await createBlocks(rows);
     } catch (error) {
       console.error("Error creating block:", error);
-      alert("Error creating block. Please try again.");
+      alert(`Error creating block: ${error?.message || "Please try again."}`);
       setIsSubmitting(false);
     }
   };
