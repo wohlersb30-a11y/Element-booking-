@@ -6,23 +6,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Calendar as CalendarIcon, Timer } from "lucide-react";
-
-const TIME_SLOTS = [
-  { value: "09:00", label: "9:00 AM" },
-  { value: "10:00", label: "10:00 AM" },
-  { value: "11:00", label: "11:00 AM" },
-  { value: "12:00", label: "12:00 PM" },
-  { value: "13:00", label: "1:00 PM" },
-  { value: "14:00", label: "2:00 PM" },
-  { value: "15:00", label: "3:00 PM" },
-  { value: "16:00", label: "4:00 PM" },
-  { value: "17:00", label: "5:00 PM" },
-  { value: "18:00", label: "6:00 PM" },
-  { value: "19:00", label: "7:00 PM" },
-  { value: "20:00", label: "8:00 PM" },
-  { value: "21:00", label: "9:00 PM" },
-  { value: "22:00", label: "10:00 PM" }
-];
+import {
+  DEFAULT_HOURS,
+  toMinutes,
+  closeTimeForDate,
+  buildStartOptions,
+} from "@/config/hours";
 
 const DURATIONS = [
   { value: 1, label: "1 hour" },
@@ -38,22 +27,27 @@ const DURATIONS = [
   { value: 6, label: "6 hours" }
 ];
 
-export default function TimeSelectionForm({ 
+export default function TimeSelectionForm({
   selectedDate,
   selectedTime,
   duration,
   onDateChange,
   onTimeChange,
   onDurationChange,
-  onSearch
+  onSearch,
+  hours = DEFAULT_HOURS
 }) {
-  const isSunday = selectedDate && selectedDate.getDay() === 0;
-  const maxEndHour = isSunday ? 21 : 23;
-  
+  // The bookable window comes from the location's operating hours (open until the
+  // close that applies to this date — Sundays can close earlier). Start options
+  // step hourly from open up to (but not including) close.
+  const closeTime = closeTimeForDate(selectedDate, hours);
+  const closeMinutes = toMinutes(closeTime);
+  const timeSlots = buildStartOptions(hours.open, closeTime, 60);
+
   const getAvailableDurations = () => {
     if (!selectedTime) return DURATIONS;
-    const startHour = parseInt(selectedTime.split(':')[0]);
-    return DURATIONS.filter(d => startHour + d.value <= maxEndHour);
+    const startMinutes = toMinutes(selectedTime);
+    return DURATIONS.filter((d) => startMinutes + d.value * 60 <= closeMinutes);
   };
 
   const canSearch = selectedDate && selectedTime && duration;
@@ -95,20 +89,15 @@ export default function TimeSelectionForm({
                   <SelectValue placeholder="Choose start time" />
                 </SelectTrigger>
                 <SelectContent>
-                  {TIME_SLOTS.map((time) => {
-                    const hour = parseInt(time.value.split(':')[0]);
-                    const isAvailable = isSunday ? hour < 21 : hour < 23;
-                    return (
-                      <SelectItem 
-                        key={time.value} 
-                        value={time.value} 
-                        disabled={!isAvailable}
-                        className="text-base py-3"
-                      >
-                        {time.label} {!isAvailable && "(Closed)"}
-                      </SelectItem>
-                    );
-                  })}
+                  {timeSlots.map((time) => (
+                    <SelectItem
+                      key={time.value}
+                      value={time.value}
+                      className="text-base py-3"
+                    >
+                      {time.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

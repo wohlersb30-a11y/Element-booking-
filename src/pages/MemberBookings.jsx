@@ -22,16 +22,7 @@ import {
 } from "@/config/membershipPlans";
 import { computeTax } from "@/config/tax";
 import { trackInitiateCheckout } from "@/lib/metaPixel";
-
-const ALL_TIME_SLOTS = [];
-for (let h = 6; h <= 22; h++) {
-  for (const m of [0, 30]) {
-    const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-    const hour12 = h % 12 === 0 ? 12 : h % 12;
-    const ampm = h < 12 ? "AM" : "PM";
-    ALL_TIME_SLOTS.push({ value, label: `${hour12}:${String(m).padStart(2, "0")} ${ampm}` });
-  }
-}
+import { useLocationHours, buildStartOptions } from "@/config/hours";
 
 const DURATION_OPTIONS = [
   { value: 0.5, label: "30 min" },
@@ -101,6 +92,10 @@ export default function MemberBookings() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
   const [membership, setMembership] = useState(null);
+  // The bookable window (half-hour steps) follows the member's home location's
+  // operating hours; defaults to 9 AM–11 PM when no override is saved.
+  const locationHours = useLocationHours(membership?.location);
+  const ALL_TIME_SLOTS = buildStartOptions(locationHours.open, locationHours.close, 30);
   const [allBays, setAllBays] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [memberBookings, setMemberBookings] = useState([]);

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Users, Lock, Crown } from "lucide-react";
 import { Booking } from "@/entities/Booking";
 import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
+import { useLocationHours, toMinutes, closeTimeForDate } from "@/config/hours";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,15 +17,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const TIME_SLOTS_WEEKDAY = [
-  "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
-  "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"
-];
-
-const TIME_SLOTS_SUNDAY = [
-  "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
-  "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"
-];
+// Build the hourly column labels for the grid, from the location's open hour
+// through its closing-boundary hour (inclusive), e.g. 09:00…23:00.
+const buildHourColumns = (openTime, closeTime) => {
+  const startHour = Math.floor(toMinutes(openTime) / 60);
+  const endHour = Math.floor(toMinutes(closeTime) / 60);
+  const out = [];
+  for (let h = startHour; h <= endHour; h++) {
+    out.push(`${String(h).padStart(2, "0")}:00`);
+  }
+  return out;
+};
 
 // Width (px) of one hour column. Half-hour cells and booking spans derive
 // from this so the header, body, and "now" line always stay aligned.
@@ -32,7 +35,8 @@ const HOUR_WIDTH = 80;
 const HALF_WIDTH = HOUR_WIDTH / 2;
 
 const formatTimeTo12Hour = (time24) => {
-  const [hours, minutes] = time24.split(':').map(Number);
+  const [rawHours, minutes] = time24.split(':').map(Number);
+  const hours = rawHours % 24; // 24:00 (midnight) -> 0
   const period = hours >= 12 ? 'PM' : 'AM';
   const hours12 = hours % 12 || 12;
   const minStr = minutes > 0 ? `:${minutes.toString().padStart(2, '0')}` : '';
@@ -130,8 +134,15 @@ export default function DailyScheduleView({
   onTimeSlotClick,
   onReload
 }) {
-  const isSunday = new Date(date).getDay() === 0;
-  const TIME_SLOTS = isSunday ? TIME_SLOTS_SUNDAY : TIME_SLOTS_WEEKDAY;
+  // Grid columns follow the location's operating hours (defaults to 9 AM–11 PM,
+  // earlier close on Sundays). Derive the location from the bays being shown.
+  const scheduleLocation = simulators?.[0]?.location;
+  const hours = useLocationHours(scheduleLocation);
+  const openTime = hours.open;
+  const closeTime = closeTimeForDate(date, hours);
+  const startHour = Math.floor(toMinutes(openTime) / 60);
+  const endHour = Math.floor(toMinutes(closeTime) / 60);
+  const TIME_SLOTS = buildHourColumns(openTime, closeTime);
 
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
   const [pendingMove, setPendingMove] = useState(null);
@@ -148,9 +159,8 @@ export default function DailyScheduleView({
       });
 
       const [hours, minutes] = cstTimeString.split(':').map(Number);
-      const maxHour = isSunday ? 22 : 23;
-      if (hours >= 9 && hours < maxHour) {
-        const totalMinutes = (hours - 9) * 60 + minutes;
+      if (hours >= startHour && hours < endHour) {
+        const totalMinutes = (hours - startHour) * 60 + minutes;
         setCurrentTimePosition(totalMinutes * (HOUR_WIDTH / 60));
       } else {
         setCurrentTimePosition(null);
@@ -160,7 +170,7 @@ export default function DailyScheduleView({
     updateTimePosition();
     const interval = setInterval(updateTimePosition, 60000);
     return () => clearInterval(interval);
-  }, [isSunday]);
+  }, [startHour, endHour]);
 
   const sortedSimulators = [...simulators].sort((a, b) => {
     return getBaySortOrder(a.name) - getBaySortOrder(b.name);

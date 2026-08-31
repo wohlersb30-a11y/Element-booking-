@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { computeTax } from "@/config/tax";
 import { isPeakSlot, coveringKinds } from "@/config/hourPackages";
 import { trackInitiateCheckout } from "@/lib/metaPixel";
+import { useLocationHours, closeTimeForDate } from "@/config/hours";
 
 import TimeSelectionForm from "../components/booking/TimeSelectionForm";
 import PlayerCountInput from "../components/booking/PlayerCountInput";
@@ -143,6 +144,9 @@ const bayOrder = (bay) => {
 export default function BookSimulator() {
   const navigate = useNavigate();
   const [selectedLocation, setSelectedLocation] = useState(null);
+  // Operating hours for the selected location (admin-configurable; falls back to
+  // the classic 9 AM–11 PM window when there's no saved override).
+  const hours = useLocationHours(selectedLocation);
   const [allBays, setAllBays] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [allSpecials, setAllSpecials] = useState([]);
@@ -371,11 +375,10 @@ export default function BookSimulator() {
           return A.num - B.num;
         });
 
-    // Operating hours: open 9:00; close 23:00 (21:00 on Sundays). A slot must
-    // fully fit inside those hours.
-    const isSunday = selectedDate.getDay() === 0;
-    const openMin = 9 * 60;
-    const closeMin = (isSunday ? 21 : 23) * 60;
+    // Operating hours come from the location's saved settings (defaults to
+    // 9 AM–11 PM, earlier on Sundays). A slot must fully fit inside those hours.
+    const openMin = toMinutes(hours.open);
+    const closeMin = toMinutes(closeTimeForDate(selectedDate, hours));
     const durMin = Math.round(duration * 60);
     const reqMin = toMinutes(selectedTime);
 
@@ -657,6 +660,7 @@ export default function BookSimulator() {
                 onTimeChange={setSelectedTime}
                 onDurationChange={setDuration}
                 onSearch={handleSearch}
+                hours={hours}
               />
             )}
 
