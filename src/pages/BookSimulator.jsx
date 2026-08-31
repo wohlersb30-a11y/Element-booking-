@@ -128,7 +128,7 @@ const getWholeDayBlock = (dateStr, locationBays, blocks, openMin, closeMin) => {
   const bayFullyCovered = (bayId) => {
     const intervals = dayBlocks
       .filter((b) => b.simulator_id === bayId)
-      .map((b) => ({ start: toMinutes(b.start_time), end: toMinutes(b.end_time), reason: b.reason }))
+      .map((b) => ({ start: toMinutes(b.start_time), end: toMinutes(b.end_time), reason: b.reason, notes: b.notes }))
       .filter((iv) => iv.end > iv.start)
       .sort((a, b) => a.start - b.start);
     if (intervals.length === 0) return false;
@@ -138,7 +138,14 @@ const getWholeDayBlock = (dateStr, locationBays, blocks, openMin, closeMin) => {
       if (iv.start > covered) break; // gap before this interval -> not fully covered
       if (iv.end > covered) {
         covered = iv.end;
-        reasons.add(BLOCK_REASON_LABELS[iv.reason] || BLOCK_REASON_LABELS.other);
+        // Show exactly what the admin entered for the block: the free-text notes
+        // when provided, otherwise the reason category they picked.
+        const detail =
+          (iv.notes && String(iv.notes).trim()) ||
+          BLOCK_REASON_LABELS[iv.reason] ||
+          iv.reason ||
+          BLOCK_REASON_LABELS.other;
+        reasons.add(detail);
       }
       if (covered >= closeMin) return true;
     }
