@@ -65,25 +65,44 @@ const calculateRate = (date, startTime, bayType, simulator) => {
   }
 };
 
-const isBayAvailable = (bay, date, startTime, duration, existingBookings) => {
+// Friendly labels for admin block reasons, shown to customers.
+const BLOCK_REASON_LABELS = {
+  league: "League play",
+  maintenance: "Maintenance",
+  event: "A private event",
+  other: "A scheduled reservation"
+};
+
+const isBayAvailable = (bay, date, startTime, duration, existingBookings, blocks = []) => {
   const [startHour, startMinute] = startTime.split(':').map(Number);
   const startTotalMinutes = startHour * 60 + startMinute;
   const endTotalMinutes = startTotalMinutes + (duration * 60);
-  
+
   const hasConflict = existingBookings.some(booking => {
     if (booking.simulator_id !== bay.id) return false;
     if (booking.booking_date !== date) return false;
     if (booking.status === "cancelled") return false;
-    
+
     const [bookingStartHour, bookingStartMinute] = booking.start_time.split(':').map(Number);
     const [bookingEndHour, bookingEndMinute] = booking.end_time.split(':').map(Number);
     const bookingStartMinutes = bookingStartHour * 60 + bookingStartMinute;
     const bookingEndMinutes = bookingEndHour * 60 + bookingEndMinute;
-    
+
     return (startTotalMinutes < bookingEndMinutes && endTotalMinutes > bookingStartMinutes);
   });
-  
-  return !hasConflict;
+  if (hasConflict) return false;
+
+  // Admin schedule blocks make a bay unavailable for the overlapping window.
+  const isBlocked = blocks.some(block => {
+    if (block.simulator_id !== bay.id) return false;
+    if (block.block_date !== date) return false;
+    const bStart = toMinutes(block.start_time);
+    const bEnd = toMinutes(block.end_time);
+    if (Number.isNaN(bStart) || Number.isNaN(bEnd)) return false;
+    return (startTotalMinutes < bEnd && endTotalMinutes > bStart);
+  });
+
+  return !isBlocked;
 };
 
 const calculateEndTime = (startTime, duration) => {
@@ -165,6 +184,12 @@ export default function BookSimulator() {
   const [playerCount, setPlayerCount] = useState(1);
   const [notes, setNotes] = useState("");
   const [availableBays, setAvailableBays] = useState([]);
+  // Admin schedule blocks (leagues, maintenance, events). Enforced against
+  // customer availability and surfaced as a reason when a time is blocked.
+  const [allBlocks, setAllBlocks] = useState([]);
+  // When a searched time is fully blocked, holds the reason(s) to show the
+  // customer instead of a bare "no availability" message.
+  const [blockNotice, setBlockNotice] = useState(null);
   const [selectedBays, setSelectedBays] = useState([]);
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -313,15 +338,17 @@ export default function BookSimulator() {
         setCustomerName(currentUser.full_name);
       }
       
-      const [bays, bookings, specials, activeClosures] = await Promise.all([
+      const [bays, bookings, specials, activeClosures, blocks] = await Promise.all([
         base44.entities.Simulator.list(),
         base44.entities.Booking.list(),
         base44.entities.Special.list().catch(() => []),
-        base44.entities.TeeSheetClosure.filter({ is_active: true }).catch(() => [])
+        base44.entities.TeeSheetClosure.filter({ is_active: true }).catch(() => []),
+        base44.entities.ScheduleBlock.list().catch(() => [])
       ]);
 
       setAllSpecials(specials || []);
       setClosures(activeClosures || []);
+      setAllBlocks(blocks || []);
       
       const activeBays = bays.filter(b => b.is_active);
       
@@ -356,6 +383,7 @@ export default function BookSimulator() {
     setSelectedBays([]);
     setShowWaitlist(false);
     setTimeAdjusted(false);
+    setBlockNotice(null);
 
     const formattedDate = format(selectedDate, "yyyy-MM-dd");
     const locationBays = allBays.filter(bay => bay.location === selectedLocation);
@@ -363,7 +391,7 @@ export default function BookSimulator() {
     // Returns the available bays (sorted Bay 1..9 then VIP) for a given start time.
     const findAvailableAt = (startTime) =>
       locationBays
-        .filter(bay => isBayAvailable(bay, formattedDate, startTime, duration, allBookings))
+        .filter(bay => isBayAvailable(bay, formattedDate, startTime, duration, allBookings, allBlocks))
         .map(bay => {
           const rate = calculateRate(formattedDate, startTime, bay.bay_type, bay);
           return { bay, rate, totalCost: rate * duration };
@@ -411,6 +439,27 @@ export default function BookSimulator() {
           available = found;
           break;
         }
+      }
+    }
+
+    // If nothing's available, work out whether that's because an admin blocked
+    // the time (league/maintenance/event) so we can tell the customer why.
+    if (available.length === 0) {
+      const reqEnd = reqMin + durMin;
+      const coveringBlocks = allBlocks.filter((b) => {
+        if (b.location !== selectedLocation) return false;
+        if (b.block_date !== formattedDate) return false;
+        const bStart = toMinutes(b.start_time);
+        const bEnd = toMinutes(b.end_time);
+        if (Number.isNaN(bStart) || Number.isNaN(bEnd)) return false;
+        return reqMin < bEnd && reqEnd > bStart;
+      });
+      if (coveringBlocks.length > 0) {
+        const blockedBayIds = new Set(coveringBlocks.map((b) => b.simulator_id));
+        const allBaysBlocked =
+          locationBays.length > 0 && locationBays.every((bay) => blockedBayIds.has(bay.id));
+        const reasons = [...new Set(coveringBlocks.map((b) => b.reason).filter(Boolean))];
+        setBlockNotice({ allBaysBlocked, reasons });
       }
     }
 
@@ -696,8 +745,28 @@ export default function BookSimulator() {
                   {availableBays.length === 0 ? (
                     <div className="text-center py-12">
                       <AlertCircle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
-                      <p className="text-slate-700 text-xl font-semibold mb-2">No bays available</p>
-                      <p className="text-slate-500 mb-6">We checked your requested time and the closest openings, but everything's booked for that day and duration. Try a different date or a shorter duration, or join the waitlist and we'll notify you if a spot opens up.</p>
+                      {blockNotice ? (
+                        <>
+                          <p className="text-slate-700 text-xl font-semibold mb-2">
+                            {blockNotice.allBaysBlocked
+                              ? "This time isn't available for booking"
+                              : "No bays available"}
+                          </p>
+                          <p className="text-slate-500 mb-6">
+                            {blockNotice.reasons.length > 0
+                              ? `The bays are reserved at this time for ${blockNotice.reasons
+                                  .map((r) => (BLOCK_REASON_LABELS[r] || "a scheduled reservation").toLowerCase())
+                                  .join(" and ")}.`
+                              : "This time has been reserved and isn't available for online booking."}{" "}
+                            Please try a different date or time, or join the waitlist and we'll notify you if a spot opens up.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-slate-700 text-xl font-semibold mb-2">No bays available</p>
+                          <p className="text-slate-500 mb-6">We checked your requested time and the closest openings, but everything's booked for that day and duration. Try a different date or a shorter duration, or join the waitlist and we'll notify you if a spot opens up.</p>
+                        </>
+                      )}
                       <Button
                         onClick={() => setShowWaitlist(true)}
                         className="bg-[#2d5567] hover:bg-[#1e3a47] text-white font-semibold rounded-xl"

@@ -10,6 +10,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { X, Loader2, AlertTriangle } from "lucide-react";
 import { format, eachDayOfInterval } from "date-fns";
+import { useLocationHours, buildHourChoices } from "@/config/hours";
 
 const toMinutes = (t) => {
   if (!t || typeof t !== "string" || !t.includes(":")) return NaN;
@@ -26,30 +27,6 @@ const prettyTime = (t) => {
   const hours12 = hours % 12 || 12;
   return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 };
-
-const TIME_SLOTS = [
-  { value: "09:00", label: "9:00 AM" },
-  { value: "10:00", label: "10:00 AM" },
-  { value: "11:00", label: "11:00 AM" },
-  { value: "12:00", label: "12:00 PM" },
-  { value: "13:00", label: "1:00 PM" },
-  { value: "14:00", label: "2:00 PM" },
-  { value: "15:00", label: "3:00 PM" },
-  { value: "16:00", label: "4:00 PM" },
-  { value: "17:00", label: "5:00 PM" },
-  { value: "18:00", label: "6:00 PM" },
-  { value: "19:00", label: "7:00 PM" },
-  { value: "20:00", label: "8:00 PM" },
-  { value: "21:00", label: "9:00 PM" },
-  { value: "22:00", label: "10:00 PM" },
-  { value: "23:00", label: "11:00 PM" }
-];
-
-// Day bounds used to fill whole days in a continuous span block: the first day
-// runs from the chosen start time to close, interior days are fully blocked
-// (open→close), and the last day runs from open to the chosen end time.
-const OPEN_TIME = TIME_SLOTS[0].value; // 09:00
-const CLOSE_TIME = TIME_SLOTS[TIME_SLOTS.length - 1].value; // 23:00
 
 const getBayDisplayName = (originalName) => {
   const nameMap = {
@@ -69,6 +46,16 @@ const getBayDisplayName = (originalName) => {
 };
 
 export default function BlockScheduleForm({ simulators, onClose, onComplete, initialDate, location }) {
+  // Block times follow the location's operating hours so a "full day" block
+  // covers the whole open→close window (including any extended early/late hours).
+  const hours = useLocationHours(location);
+  const TIME_SLOTS = buildHourChoices(hours.open, hours.close);
+  // Day bounds used to fill whole days: the first day of a span runs from the
+  // chosen start time to close, interior days are fully blocked (open→close),
+  // and the last day runs from open to the chosen end time.
+  const OPEN_TIME = hours.open;
+  const CLOSE_TIME = hours.close;
+
   const [formData, setFormData] = useState({
     start_time: "",
     end_time: "",

@@ -99,6 +99,7 @@ export default function MemberBookings() {
   const [allBays, setAllBays] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [memberBookings, setMemberBookings] = useState([]);
+  const [allBlocks, setAllBlocks] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState("");
   const [duration, setDuration] = useState(1);
@@ -138,16 +139,20 @@ export default function MemberBookings() {
       }
       setMembership(active);
 
-      const [bays, regularBookings, memBookings] = await Promise.all([
+      const [bays, regularBookings, memBookings, blocks] = await Promise.all([
         base44.entities.Simulator.filter({ location: active.location, is_active: true }),
         base44.entities.Booking.list(),
         // Shared pool: usage is tracked per membership_id (covers corporate
         // multi-seat too), NOT per member email.
-        base44.entities.MemberBooking.filter({ membership_id: active.id })
+        base44.entities.MemberBooking.filter({ membership_id: active.id }),
+        // Admin schedule blocks (leagues/maintenance/events) also make bays
+        // unavailable to members.
+        base44.entities.ScheduleBlock.filter({ location: active.location }).catch(() => [])
       ]);
       setAllBays(bays);
       setAllBookings(regularBookings);
       setMemberBookings(memBookings);
+      setAllBlocks(blocks || []);
     } catch (error) {
       console.error("Error loading data:", error);
     }
@@ -222,8 +227,16 @@ export default function MemberBookings() {
     setIsSearching(true);
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     const included = slotIsIncluded(selectedDate, selectedTime, duration);
+    // Treat admin schedule blocks like existing bookings so members can't book
+    // over a league/maintenance/event block.
+    const blockRows = allBlocks.map((b) => ({
+      simulator_id: b.simulator_id,
+      booking_date: b.block_date,
+      start_time: b.start_time,
+      end_time: b.end_time
+    }));
     const available = allBays
-      .filter((bay) => isBayAvailable(bay, dateStr, selectedTime, duration, [...allBookings, ...memberBookings]))
+      .filter((bay) => isBayAvailable(bay, dateStr, selectedTime, duration, [...allBookings, ...memberBookings, ...blockRows]))
       .map((bay) => {
         const base = computeBaseRate(bay, selectedDate, selectedTime);
         const perHour = included ? 0 : memberDiscountedRate(base, plan);
