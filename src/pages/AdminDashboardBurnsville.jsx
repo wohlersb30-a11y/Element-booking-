@@ -26,6 +26,7 @@ import CustomerLookup from "../components/admin/CustomerLookup";
 import DailyReportSummary from "../components/admin/DailyReportSummary";
 import TeeSheetCloser from "../components/admin/TeeSheetCloser";
 import OperatingHoursEditor from "../components/admin/OperatingHoursEditor";
+import LeagueSignupEditor from "../components/admin/LeagueSignupEditor";
 
 export default function AdminDashboardBurnsville() {
   const navigate = useNavigate();
@@ -206,6 +207,7 @@ export default function AdminDashboardBurnsville() {
     <div className="min-h-screen p-3 sm:p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <OperatingHoursEditor location="burnsville" className="mb-4" />
+        <LeagueSignupEditor location="burnsville" className="mb-4" />
         <TeeSheetCloser location="burnsville" className="mb-4" />
         <div className="mb-6 sm:mb-8">
           <div className="flex flex-col gap-4 mb-6">

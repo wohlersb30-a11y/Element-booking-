@@ -1,9 +1,36 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Building2 } from "lucide-react";
+import { MapPin, Building2, Trophy } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function LocationSelector({ selectedLocation, onChange }) {
+  // Per-location "League Sign Up" URLs, set by admins in the dashboard. Absence
+  // (or a blank value) means no League Sign Up button is shown for that location.
+  const [leagueUrls, setLeagueUrls] = useState({});
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("location_settings")
+          .select("location, league_signup_url");
+        if (!active || !data) return;
+        const map = {};
+        data.forEach((row) => {
+          if (row.league_signup_url) map[row.location] = row.league_signup_url;
+        });
+        setLeagueUrls(map);
+      } catch (e) {
+        console.error("Failed to load league signup URLs:", e);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const locations = [
     {
       id: "vadnais_heights",
@@ -76,6 +103,18 @@ export default function LocationSelector({ selectedLocation, onChange }) {
                   </div>
                 </div>
               </button>
+
+              {leagueUrls[location.id] && (
+                <a
+                  href={leagueUrls[location.id]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 w-full inline-flex items-center justify-center gap-2 h-12 px-4 rounded-xl font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95"
+                >
+                  <Trophy className="w-5 h-5" />
+                  League Sign Up
+                </a>
+              )}
             </motion.div>
           ))}
         </div>
