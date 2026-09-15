@@ -34,14 +34,14 @@ export default function LocationSelector({ selectedLocation, onChange }) {
   const locations = [
     {
       id: "vadnais_heights",
-      name: "Vadnais Heights",
+      name: "Book at Vadnais Heights",
       address: "4255 White Bear Parkway Suite 2100, Vadnais Heights MN 55110",
       bays: 11,
       icon: Building2
     },
     {
       id: "burnsville",
-      name: "Burnsville",
+      name: "Book at Burnsville",
       address: "14314 Burnhave Drive, Burnsville MN 55306",
       bays: 12,
       icon: Building2
