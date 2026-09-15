@@ -112,7 +112,7 @@ export default function LocationSelector({ selectedLocation, onChange }) {
                   className="mt-3 w-full inline-flex items-center justify-center gap-2 h-12 px-4 rounded-xl font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95"
                 >
                   <Trophy className="w-5 h-5" />
-                  League Sign Up
+                  League Info &amp; Registration
                 </a>
               )}
             </motion.div>
