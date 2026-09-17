@@ -220,7 +220,7 @@ export async function sendBookingConfirmation(bookingData) {
     </div>
     
     <div class="total">
-      Authorization Hold: $${total_cost.toFixed(2)}
+      Authorization Hold: $${Number(total_cost || 0).toFixed(2)}
       <div style="font-size:13px;font-weight:normal;opacity:0.9;margin-top:6px;">not charged — see below</div>
     </div>
 

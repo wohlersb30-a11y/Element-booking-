@@ -429,25 +429,38 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       }
 
       // Send ONE confirmation (the first reservation) so a recurring series
-      // doesn't email/text the customer once per session.
+      // doesn't email/text the customer once per session. sendBookingConfirmation
+      // resolves with { success: false } (rather than throwing) when the send
+      // fails, so we inspect the result and surface any failure to the admin —
+      // this way a manually-booked customer never silently goes without a
+      // confirmation email.
+      let emailFailed = false;
       if (firstBookingData) {
-        await Promise.all([
-          sendBookingConfirmation(firstBookingData).catch((err) =>
-            console.error("Confirmation email failed:", err)
-          ),
+        const [emailResult] = await Promise.all([
+          sendBookingConfirmation(firstBookingData).catch((err) => {
+            console.error("Confirmation email failed:", err);
+            return { success: false, error: err };
+          }),
           sendBookingConfirmationSMS(firstBookingData).catch((err) =>
             console.error("Confirmation SMS failed:", err)
           )
         ]);
+        emailFailed = !emailResult || emailResult.success === false;
       }
+
+      const emailAddr = firstBookingData?.customer_email || "the customer";
 
       if (formData.is_recurring) {
         let msg = `Created ${created.length} reservation${created.length === 1 ? "" : "s"}.`;
         if (skipped.length) {
           msg += `\n\nSkipped ${skipped.length} date${skipped.length === 1 ? "" : "s"} due to conflicts:\n${skipped.join(", ")}`;
         }
-        msg += `\n\nOne confirmation was sent to the customer for the series.`;
+        msg += emailFailed
+          ? `\n\n⚠️ The confirmation email could NOT be sent to ${emailAddr}. Please double-check the email address and follow up with the customer.`
+          : `\n\nOne confirmation was sent to the customer for the series.`;
         alert(msg);
+      } else if (emailFailed) {
+        alert(`Reservation created — but the confirmation email could NOT be sent to ${emailAddr}. Please double-check the email address and follow up with the customer.`);
       }
 
       onComplete();
