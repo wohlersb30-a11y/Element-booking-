@@ -43,10 +43,10 @@ export default function TimeSelectionForm({
 }) {
   // The bookable window comes from the location's operating hours (open until the
   // close that applies to this date — Sundays can close earlier). Start options
-  // step hourly from open up to (but not including) close.
+  // step every half hour from open up to (but not including) close.
   const closeTime = closeTimeForDate(selectedDate, hours);
   const closeMinutes = toMinutes(closeTime);
-  const timeSlots = buildStartOptions(hours.open, closeTime, 60);
+  const timeSlots = buildStartOptions(hours.open, closeTime, 30);
 
   const getAvailableDurations = () => {
     if (!selectedTime) return DURATIONS;
