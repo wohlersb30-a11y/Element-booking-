@@ -368,14 +368,18 @@ export default function DailyScheduleView({
                           </div>
                         </td>
                         <td colSpan={TIME_SLOTS.length} className="p-0 relative">
+                          {/* Flat row of half-hour cells. Rendering every 30-min slot
+                              in a single flex row (rather than nesting them inside a
+                              fixed-width per-hour wrapper) keeps booking/block widths
+                              perfectly aligned with the hourly header — even when a
+                              reservation starts on a half hour or spans an hour
+                              boundary — so the white cell right after a booking stays
+                              clickable for manual bookings. */}
                           <div className="flex">
-                            {TIME_SLOTS.map((timeSlot) => {
+                            {TIME_SLOTS.flatMap((timeSlot) => {
                               const [slotHour] = timeSlot.split(':').map(Number);
-                              const halfHourSlots = generateHalfHourSlots(slotHour);
-
-                              return (
-                                <div key={timeSlot} className="flex" style={{ width: `${HOUR_WIDTH}px`, minWidth: `${HOUR_WIDTH}px` }}>
-                                  {halfHourSlots.map((halfSlot, index) => {
+                              return generateHalfHourSlots(slotHour);
+                            }).map((halfSlot) => {
                                     if (renderedSlots.has(halfSlot)) {
                                       return null;
                                     }
@@ -533,9 +537,6 @@ export default function DailyScheduleView({
                                         )}
                                       </Droppable>
                                     );
-                                  })}
-                                </div>
-                              );
                             })}
                           </div>
                         </td>
