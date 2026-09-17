@@ -165,9 +165,43 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
   const [custMatches, setCustMatches] = useState([]);
   const [custLoading, setCustLoading] = useState(false);
   const [showCustList, setShowCustList] = useState(false);
+  // Unique contacts drawn from past bookings, so returning customers who aren't
+  // in the imported directory table still show up as suggestions.
+  const [bookingContacts, setBookingContacts] = useState([]);
   // Set right after a suggestion is picked so the debounce effect doesn't
   // immediately re-open the dropdown for the value we just filled in.
   const skipCustSearchRef = useRef(false);
+
+  // Build a de-duped contact list from booking history (once on mount).
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const all = await Booking.list("-booking_date");
+        const map = new Map();
+        (all || []).forEach((b) => {
+          if (!b.customer_name && !b.customer_email && !b.customer_phone) return;
+          const key =
+            (b.customer_email || "").toLowerCase() ||
+            (b.customer_phone || "").replace(/\D/g, "") ||
+            (b.customer_name || "").toLowerCase();
+          if (!key || map.has(key)) return;
+          map.set(key, {
+            id: `bk-${key}`,
+            full_name: b.customer_name,
+            email: b.customer_email,
+            phone: b.customer_phone,
+          });
+        });
+        if (active) setBookingContacts(Array.from(map.values()));
+      } catch (e) {
+        console.error("Failed to load booking contacts:", e);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (skipCustSearchRef.current) {
@@ -195,8 +229,35 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           .order("full_name", { ascending: true, nullsFirst: false })
           .limit(8);
         if (error) throw error;
+
+        // Also match against contacts pulled from past bookings.
+        const lc = term.toLowerCase();
+        const bkMatches = bookingContacts.filter(
+          (c) =>
+            (c.full_name || "").toLowerCase().includes(lc) ||
+            (c.email || "").toLowerCase().includes(lc) ||
+            (digits && (c.phone || "").replace(/\D/g, "").includes(digits))
+        );
+
+        // Merge directory + booking contacts, de-duping by email (or phone
+        // when there's no email). Directory entries take precedence.
+        const seenEmail = new Set();
+        const seenPhone = new Set();
+        const merged = [];
+        const pushContact = (c) => {
+          const em = (c.email || "").toLowerCase();
+          const ph = (c.phone || "").replace(/\D/g, "");
+          if (em && seenEmail.has(em)) return;
+          if (!em && ph && seenPhone.has(ph)) return;
+          if (em) seenEmail.add(em);
+          if (ph) seenPhone.add(ph);
+          merged.push(c);
+        };
+        (data || []).forEach(pushContact);
+        bkMatches.forEach(pushContact);
+
         if (active) {
-          setCustMatches(data || []);
+          setCustMatches(merged.slice(0, 8));
           setShowCustList(true);
         }
       } catch (e) {
@@ -210,7 +271,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       active = false;
       clearTimeout(t);
     };
-  }, [formData.customer_name]);
+  }, [formData.customer_name, bookingContacts]);
 
   // Fill the contact fields from a chosen directory match.
   const applyCustomer = (c) => {
