@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Booking } from "@/entities/all";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
-import { X, Loader2, Repeat } from "lucide-react";
+import { X, Loader2, Repeat, Mail, Phone, User } from "lucide-react";
 import { format, addDays, addWeeks, addMonths } from "date-fns";
 
 import { sendBookingConfirmation } from "../booking/BookingConfirmationEmail";
@@ -47,6 +48,14 @@ const calculateEndTime = (startTime, duration) => {
   const endHours = Math.floor(totalMinutes / 60);
   const endMinutes = totalMinutes % 60;
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+};
+
+// Format a digits-only phone as (XXX) XXX-XXXX when it's a 10-digit US number.
+const fmtPhone = (p) => {
+  if (!p) return "";
+  const d = String(p).replace(/\D/g, "");
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  return p;
 };
 
 const calculateRate = (date, startTime, simulator) => {
@@ -148,6 +157,73 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     recurrence_count: 4
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // --- Customer autocomplete (search the imported customer directory) ---
+  // As the admin types a name (or email/phone) into the Customer Name box, we
+  // look up matching contacts in the `customers` table and offer to auto-fill
+  // the name / email / phone so returning customers don't have to be retyped.
+  const [custMatches, setCustMatches] = useState([]);
+  const [custLoading, setCustLoading] = useState(false);
+  const [showCustList, setShowCustList] = useState(false);
+  // Set right after a suggestion is picked so the debounce effect doesn't
+  // immediately re-open the dropdown for the value we just filled in.
+  const skipCustSearchRef = useRef(false);
+
+  useEffect(() => {
+    if (skipCustSearchRef.current) {
+      skipCustSearchRef.current = false;
+      return;
+    }
+    const term = (formData.customer_name || "").trim();
+    if (term.length < 2) {
+      setCustMatches([]);
+      setShowCustList(false);
+      return;
+    }
+    let active = true;
+    const t = setTimeout(async () => {
+      setCustLoading(true);
+      try {
+        const esc = term.replace(/[%,]/g, " ");
+        const digits = term.replace(/\D/g, "");
+        const ors = [`full_name.ilike.%${esc}%`, `email.ilike.%${esc}%`];
+        if (digits) ors.push(`phone.ilike.%${digits}%`);
+        const { data, error } = await supabase
+          .from("customers")
+          .select("id, full_name, email, phone")
+          .or(ors.join(","))
+          .order("full_name", { ascending: true, nullsFirst: false })
+          .limit(8);
+        if (error) throw error;
+        if (active) {
+          setCustMatches(data || []);
+          setShowCustList(true);
+        }
+      } catch (e) {
+        console.error("Customer search failed:", e);
+        if (active) setCustMatches([]);
+      } finally {
+        if (active) setCustLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [formData.customer_name]);
+
+  // Fill the contact fields from a chosen directory match.
+  const applyCustomer = (c) => {
+    skipCustSearchRef.current = true;
+    setFormData((prev) => ({
+      ...prev,
+      customer_name: c.full_name || prev.customer_name,
+      customer_email: c.email || prev.customer_email,
+      customer_phone: c.phone || prev.customer_phone,
+    }));
+    setShowCustList(false);
+    setCustMatches([]);
+  };
 
   // Update form when preselected values change
   useEffect(() => {
@@ -402,13 +478,53 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Customer Name *</Label>
-            <Input
-              id="name"
-              value={formData.customer_name}
-              onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
-              required
-              className="h-12"
-            />
+            <div className="relative">
+              <Input
+                id="name"
+                value={formData.customer_name}
+                onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
+                onFocus={() => { if (custMatches.length > 0) setShowCustList(true); }}
+                onBlur={() => { setTimeout(() => setShowCustList(false), 150); }}
+                autoComplete="off"
+                placeholder="Start typing a name to search saved customers"
+                required
+                className="h-12"
+              />
+              {custLoading && (
+                <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+              )}
+              {showCustList && custMatches.length > 0 && (
+                <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                  {custMatches.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      // onMouseDown fires before the input's onBlur, so the pick
+                      // registers even though the field is losing focus.
+                      onMouseDown={(e) => { e.preventDefault(); applyCustomer(c); }}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 font-semibold text-slate-800">
+                        <User className="w-4 h-4 text-[#2d5567]" />
+                        {c.full_name || <span className="text-slate-400">(no name)</span>}
+                      </div>
+                      <div className="mt-1 flex flex-col gap-0.5 text-sm text-slate-500 pl-6">
+                        {c.email && (
+                          <span className="flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5" /> {c.email}
+                          </span>
+                        )}
+                        {c.phone && (
+                          <span className="flex items-center gap-1.5">
+                            <Phone className="w-3.5 h-3.5" /> {fmtPhone(c.phone)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
