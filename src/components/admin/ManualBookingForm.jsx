@@ -165,6 +165,9 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
   const [custMatches, setCustMatches] = useState([]);
   const [custLoading, setCustLoading] = useState(false);
   const [showCustList, setShowCustList] = useState(false);
+  // True once a lookup has actually completed for the current term, so we can
+  // show a "no saved customer found" message instead of a blank panel.
+  const [custSearched, setCustSearched] = useState(false);
   // Unique contacts drawn from past bookings, so returning customers who aren't
   // in the imported directory table still show up as suggestions.
   const [bookingContacts, setBookingContacts] = useState([]);
@@ -212,8 +215,12 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     if (term.length < 2) {
       setCustMatches([]);
       setShowCustList(false);
+      setCustSearched(false);
       return;
     }
+    // Open the panel immediately (shows a spinner) so it's obvious a search is
+    // running as soon as the admin starts typing.
+    setShowCustList(true);
     let active = true;
     const t = setTimeout(async () => {
       setCustLoading(true);
@@ -258,15 +265,19 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
 
         if (active) {
           setCustMatches(merged.slice(0, 8));
+          setCustSearched(true);
           setShowCustList(true);
         }
       } catch (e) {
         console.error("Customer search failed:", e);
-        if (active) setCustMatches([]);
+        if (active) {
+          setCustMatches([]);
+          setCustSearched(true);
+        }
       } finally {
         if (active) setCustLoading(false);
       }
-    }, 300);
+    }, 200);
     return () => {
       active = false;
       clearTimeout(t);
@@ -284,6 +295,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     }));
     setShowCustList(false);
     setCustMatches([]);
+    setCustSearched(false);
   };
 
   // Update form when preselected values change
@@ -538,54 +550,72 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         {/* Customer Info */}
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Customer Name *</Label>
-            <div className="relative">
-              <Input
-                id="name"
-                value={formData.customer_name}
-                onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
-                onFocus={() => { if (custMatches.length > 0) setShowCustList(true); }}
-                onBlur={() => { setTimeout(() => setShowCustList(false), 150); }}
-                autoComplete="off"
-                placeholder="Start typing a name to search saved customers"
-                required
-                className="h-12"
-              />
-              {custLoading && (
-                <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-              )}
-              {showCustList && custMatches.length > 0 && (
-                <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
-                  {custMatches.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      // onMouseDown fires before the input's onBlur, so the pick
-                      // registers even though the field is losing focus.
-                      onMouseDown={(e) => { e.preventDefault(); applyCustomer(c); }}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 transition-colors"
-                    >
-                      <div className="flex items-center gap-2 font-semibold text-slate-800">
-                        <User className="w-4 h-4 text-[#2d5567]" />
-                        {c.full_name || <span className="text-slate-400">(no name)</span>}
-                      </div>
-                      <div className="mt-1 flex flex-col gap-0.5 text-sm text-slate-500 pl-6">
-                        {c.email && (
-                          <span className="flex items-center gap-1.5">
-                            <Mail className="w-3.5 h-3.5" /> {c.email}
-                          </span>
-                        )}
-                        {c.phone && (
-                          <span className="flex items-center gap-1.5">
-                            <Phone className="w-3.5 h-3.5" /> {fmtPhone(c.phone)}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="name">Customer Name *</Label>
+              {showCustList && (
+                <button
+                  type="button"
+                  onClick={() => { setShowCustList(false); }}
+                  className="text-xs text-slate-400 hover:text-slate-600"
+                >
+                  Hide suggestions
+                </button>
               )}
             </div>
+            <Input
+              id="name"
+              value={formData.customer_name}
+              onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
+              autoComplete="off"
+              placeholder="Start typing a name to search saved customers"
+              required
+              className="h-12"
+            />
+            {/* Inline suggestions panel — rendered in normal flow so the modal's
+                scroll container can never clip it. */}
+            {showCustList && (
+              <div className="border border-slate-200 rounded-xl bg-white shadow-sm overflow-hidden">
+                {custLoading && (
+                  <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-500">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Searching saved customers…
+                  </div>
+                )}
+                {!custLoading && custMatches.length > 0 && (
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                    {custMatches.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => applyCustomer(c)}
+                        className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 font-semibold text-slate-800">
+                          <User className="w-4 h-4 text-[#2d5567]" />
+                          {c.full_name || <span className="text-slate-400">(no name)</span>}
+                        </div>
+                        <div className="mt-1 flex flex-col gap-0.5 text-sm text-slate-500 pl-6">
+                          {c.email && (
+                            <span className="flex items-center gap-1.5">
+                              <Mail className="w-3.5 h-3.5" /> {c.email}
+                            </span>
+                          )}
+                          {c.phone && (
+                            <span className="flex items-center gap-1.5">
+                              <Phone className="w-3.5 h-3.5" /> {fmtPhone(c.phone)}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!custLoading && custSearched && custMatches.length === 0 && (
+                  <div className="px-4 py-3 text-sm text-slate-500">
+                    No saved customer found — this will be added as a new customer.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
