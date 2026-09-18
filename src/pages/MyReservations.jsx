@@ -42,7 +42,13 @@ const formatTime = (time24) => {
 // Defensive date formatting — returns "" instead of throwing on invalid dates.
 const fmtDate = (value, pattern) => {
   if (!value) return "";
-  const d = new Date(value);
+  // Parse a bare yyyy-MM-dd as LOCAL time (append a time component) so it isn't
+  // treated as UTC midnight, which would shift the date to the previous day in
+  // US time zones.
+  const d =
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00`)
+      : new Date(value);
   return Number.isNaN(d.getTime()) ? "" : format(d, pattern);
 };
 
@@ -223,11 +229,17 @@ export default function MyReservations() {
 
   const canCancel = (booking) => hoursUntil(booking) > CANCELLATION_WINDOW_HOURS;
 
+  // Compare against the start of today in LOCAL time. Parsing "yyyy-MM-dd" with
+  // new Date() treats it as UTC midnight, so today's bookings were being
+  // mis-sorted into "past" in US time zones.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const bookingDay = (b) => new Date(`${b.booking_date}T00:00:00`);
   const upcomingBookings = bookings.filter(
-    b => b.status === "confirmed" && new Date(b.booking_date) >= new Date()
+    b => b.status === "confirmed" && bookingDay(b) >= startOfToday
   );
   const pastBookings = bookings.filter(
-    b => b.status !== "confirmed" || new Date(b.booking_date) < new Date()
+    b => b.status !== "confirmed" || bookingDay(b) < startOfToday
   );
 
   if (isLoading) {

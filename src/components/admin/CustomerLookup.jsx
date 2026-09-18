@@ -220,7 +220,7 @@ export default function CustomerLookup({ onClose, onBookingSelect }) {
                           </div>
                           <div className="flex items-center gap-2 text-sm text-slate-600">
                             <Calendar className="w-4 h-4" />
-                            <span>{format(new Date(booking.booking_date), "MMM d, yyyy")}</span>
+                            <span>{format(new Date(`${booking.booking_date}T00:00:00`), "MMM d, yyyy")}</span>
                             <span>•</span>
                             <span>{formatTime(booking.start_time)}</span>
                           </div>

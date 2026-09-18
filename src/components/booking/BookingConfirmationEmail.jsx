@@ -69,7 +69,15 @@ export async function sendBookingConfirmation(bookingData) {
 
   const loc = locationInfo(location);
   const bayDisplayName = getBayDisplayName(simulator_name);
-  const formattedDate = new Date(booking_date).toLocaleDateString('en-US', {
+  // Parse the yyyy-MM-dd booking date as LOCAL time. `new Date("2026-09-18")`
+  // is interpreted as UTC midnight, which renders as the PREVIOUS day in US
+  // time zones — that's why confirmations were showing yesterday's date.
+  // Appending a time component forces local-time parsing.
+  const bookingDateObj =
+    typeof booking_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(booking_date)
+      ? new Date(`${booking_date}T00:00:00`)
+      : new Date(booking_date);
+  const formattedDate = bookingDateObj.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
