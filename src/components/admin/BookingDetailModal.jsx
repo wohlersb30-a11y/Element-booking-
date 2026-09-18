@@ -10,6 +10,7 @@ import { format } from "date-fns";
 
 import CheckInSystem from "./CheckInSystem";
 import { Textarea } from "@/components/ui/textarea";
+import { useLocationHours, closeTimeForDate } from "@/config/hours";
 
 const formatTime = (time24) => {
   if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
@@ -47,6 +48,13 @@ const toMinutes = (t) => {
 
 const isVIPBay = (bay) => bay?.bay_type === "vip" || /vip/i.test(bay?.name || "");
 
+// Given a start time ("HH:MM") and a duration in hours, compute the end time.
+const addDuration = (startTime, durationHours) => {
+  const [h, m] = String(startTime).split(":").map(Number);
+  const total = h * 60 + (m || 0) + Math.round((durationHours || 0) * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
+
 const bayRank = (bay) => {
   const match = (bay?.name || "").match(/\d+/);
   return { vip: isVIPBay(bay) ? 1 : 0, num: match ? parseInt(match[0], 10) : 9999 };
@@ -60,6 +68,75 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   const [isMoving, setIsMoving] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isCharging, setIsCharging] = useState(false);
+  const [startTime, setStartTime] = useState(booking.start_time || "");
+  const [durationHours, setDurationHours] = useState(Number(booking.duration_hours) || 1);
+  const [isSavingTime, setIsSavingTime] = useState(false);
+
+  // Operating hours for this booking's location, used to bound the editable
+  // start-time / duration options and to validate the new window.
+  const bookingHours = useLocationHours(booking.location);
+  const openMin = toMinutes(bookingHours.open);
+  const closeMin = toMinutes(closeTimeForDate(booking.booking_date, bookingHours));
+
+  // 30-minute start-time options across operating hours (+ the current start,
+  // in case it sits off the grid).
+  const startOptions = [];
+  for (let m = openMin; m + 30 <= closeMin; m += 30) {
+    startOptions.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  }
+  if (booking.start_time && !startOptions.includes(booking.start_time)) {
+    startOptions.unshift(booking.start_time);
+  }
+
+  const durationOptions = [];
+  for (let d = 0.5; d <= 6.0001; d += 0.5) durationOptions.push(Number(d.toFixed(1)));
+  if (booking.duration_hours && !durationOptions.includes(Number(booking.duration_hours))) {
+    durationOptions.push(Number(booking.duration_hours));
+    durationOptions.sort((a, b) => a - b);
+  }
+
+  const proposedEnd = addDuration(startTime, durationHours);
+  const timeChanged =
+    startTime !== booking.start_time || Number(durationHours) !== Number(booking.duration_hours);
+
+  const handleUpdateTime = async () => {
+    const newStartMin = toMinutes(startTime);
+    const newEndMin = toMinutes(proposedEnd);
+    if (newStartMin < openMin || newEndMin > closeMin) {
+      alert("That time is outside this location's operating hours.");
+      return;
+    }
+    const conflict = (existingBookings || []).some((b) => {
+      if (b.id === booking.id) return false;
+      if (b.simulator_id !== booking.simulator_id) return false;
+      if (b.booking_date !== booking.booking_date) return false;
+      if (b.status === "cancelled") return false;
+      return newStartMin < toMinutes(b.end_time) && newEndMin > toMinutes(b.start_time);
+    });
+    if (conflict) {
+      alert("That time overlaps another reservation on this bay. Choose a different time or duration.");
+      return;
+    }
+    setIsSavingTime(true);
+    try {
+      await Booking.update(booking.id, {
+        start_time: startTime,
+        end_time: proposedEnd,
+        duration_hours: durationHours
+      });
+      alert(
+        "Reservation time updated." +
+          (Number(durationHours) !== Number(booking.duration_hours)
+            ? " Note: the price shown was not recalculated — adjust it under Payment if needed."
+            : "")
+      );
+      onClose();
+    } catch (error) {
+      console.error("Error updating reservation time:", error);
+      alert("Error updating the reservation time. Please try again.");
+    }
+    setIsSavingTime(false);
+  };
 
   // A capturable hold exists when the booking has a Stripe payment id and hasn't
   // already been charged or refunded.
@@ -297,6 +374,56 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                     Heads up: upgrading to a VIP bay does not change the price already on this booking.
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Edit the reservation's start time and duration directly. */}
+            {booking.status !== "cancelled" && (
+              <div className="mt-4 p-3 bg-slate-50 rounded-lg space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Edit Time & Duration</label>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-slate-500 mb-1">Start</span>
+                    <Select value={startTime} onValueChange={setStartTime}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {startOptions.map((t) => (
+                          <SelectItem key={t} value={t}>{formatTime(t)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-slate-500 mb-1">Duration</span>
+                    <Select value={String(durationHours)} onValueChange={(v) => setDurationHours(Number(v))}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {durationOptions.map((d) => (
+                          <SelectItem key={d} value={String(d)}>
+                            {d === 1 ? "1 hour" : `${d} hours`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {timeChanged && (
+                    <Button
+                      size="sm"
+                      onClick={handleUpdateTime}
+                      disabled={isSavingTime}
+                      className="bg-[#2d5567] hover:bg-[#1e3a47]"
+                    >
+                      {isSavingTime ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Time"}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
+                  New window: {formatTime(startTime)} – {formatTime(proposedEnd)}
+                </p>
               </div>
             )}
           </div>

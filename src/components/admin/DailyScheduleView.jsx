@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Lock, Crown } from "lucide-react";
@@ -149,6 +148,17 @@ export default function DailyScheduleView({
   const [pendingMove, setPendingMove] = useState(null);
   const [currentTimePosition, setCurrentTimePosition] = useState(null);
 
+  // Custom pointer-based drag for moving reservations. The previous
+  // @hello-pangea/dnd implementation used the narrow 40px half-hour cells as
+  // drop targets, so its center-based collision detection made nudging a
+  // reservation 30 minutes forward/back very finicky. Here we snap the move to
+  // exact 30-minute steps from the horizontal pointer delta (1 slot = HALF_WIDTH
+  // px) and read the target bay from whatever row is under the cursor, which is
+  // precise and predictable. dragRef holds the live, mutable drag; dragUI mirrors
+  // it into state only for rendering the floating badge + block styling.
+  const dragRef = useRef(null);
+  const [dragUI, setDragUI] = useState(null);
+
   useEffect(() => {
     const updateTimePosition = () => {
       const now = new Date();
@@ -173,9 +183,10 @@ export default function DailyScheduleView({
     return () => clearInterval(interval);
   }, [startHour, endHour]);
 
-  const sortedSimulators = [...simulators].sort((a, b) => {
-    return getBaySortOrder(a.name) - getBaySortOrder(b.name);
-  });
+  const sortedSimulators = useMemo(
+    () => [...simulators].sort((a, b) => getBaySortOrder(a.name) - getBaySortOrder(b.name)),
+    [simulators]
+  );
 
   const getBookingForBayAndTime = (bayId, timeSlot) => {
     return bookings.find(booking => {
@@ -216,40 +227,106 @@ export default function DailyScheduleView({
     return (endTotalMinutes - startTotalMinutes) / 60;
   };
 
-  const handleDragEnd = (result) => {
-    if (!result.destination) return;
-
-    const bookingId = result.draggableId;
-    const destinationId = result.destination.droppableId;
-
-    const parts = destinationId.split('-slot-');
-    if (parts.length !== 2) return;
-
-    const newBayId = parts[0].replace('bay-', '');
-    const newTimeSlot = parts[1];
-
-    const booking = bookings.find(b => b.id === bookingId);
-    if (!booking) return;
-
-    const newBay = simulators.find(s => s.id === newBayId);
-    if (!newBay) return;
-
-    const newEndTime = calculateEndTime(newTimeSlot, booking.duration_hours);
-
-    if (hasConflict(newBayId, newTimeSlot, newEndTime, bookings, bookingId)) {
-      alert("This time slot conflicts with an existing booking. Please choose a different time.");
-      return;
-    }
-
-    setPendingMove({
-      bookingId,
+  // Start dragging a reservation block. Everything is tracked in dragRef and we
+  // only commit on pointer-up, so a plain click (no time/bay change) still opens
+  // the booking modal.
+  const beginDrag = (e, booking) => {
+    if (e.button != null && e.button !== 0) return; // primary button / touch only
+    e.preventDefault();
+    dragRef.current = {
       booking,
-      newBayId,
-      newBayName: newBay.name,
-      newStartTime: newTimeSlot
-    });
-    setShowMoveConfirm(true);
+      startX: e.clientX,
+      startBayId: booking.simulator_id,
+      curStart: booking.start_time,
+      curEnd: booking.end_time,
+      curBayId: booking.simulator_id,
+      curBayName: booking.simulator_name,
+      curX: e.clientX,
+      curY: e.clientY,
+      valid: true,
+      moved: false
+    };
+    setDragUI({ ...dragRef.current });
   };
+
+  useEffect(() => {
+    const openMin = startHour * 60;
+    const closeMin = endHour * 60;
+
+    const handleMove = (e) => {
+      const d = dragRef.current;
+      if (!d) return;
+
+      // Snap the horizontal pointer delta to exact 30-minute steps.
+      const offsetSlots = Math.round((e.clientX - d.startX) / HALF_WIDTH);
+      const [oh, om] = d.booking.start_time.split(':').map(Number);
+      const durMin = Math.round((d.booking.duration_hours || 1) * 60);
+      let newStartMin = oh * 60 + om + offsetSlots * 30;
+      // Keep the whole reservation within operating hours.
+      if (newStartMin < openMin) newStartMin = openMin;
+      if (newStartMin + durMin > closeMin) newStartMin = closeMin - durMin;
+      const nh = Math.floor(newStartMin / 60);
+      const nm = newStartMin % 60;
+      const newStart = `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`;
+      const newEnd = calculateEndTime(newStart, d.booking.duration_hours);
+
+      // Target bay = whichever row the cursor is over (falls back to the origin).
+      let targetBayId = d.startBayId;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const bayEl = el && el.closest ? el.closest('[data-bay-id]') : null;
+      if (bayEl) targetBayId = bayEl.getAttribute('data-bay-id');
+      const targetBay = sortedSimulators.find(s => s.id === targetBayId);
+
+      const conflict = hasConflict(targetBayId, newStart, newEnd, bookings, d.booking.id);
+      const moved = newStart !== d.booking.start_time || targetBayId !== d.startBayId;
+
+      dragRef.current = {
+        ...d,
+        curStart: newStart,
+        curEnd: newEnd,
+        curBayId: targetBayId,
+        curBayName: targetBay ? targetBay.name : '',
+        curX: e.clientX,
+        curY: e.clientY,
+        valid: !!targetBay && !conflict,
+        moved
+      };
+      setDragUI({ ...dragRef.current });
+    };
+
+    const handleUp = () => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDragUI(null);
+      if (!d) return;
+
+      // No effective change -> treat as a click and open the booking modal.
+      if (!d.moved) {
+        onBookingClick(d.booking);
+        return;
+      }
+      if (d.valid) {
+        const targetBay = sortedSimulators.find(s => s.id === d.curBayId);
+        if (targetBay) {
+          setPendingMove({
+            bookingId: d.booking.id,
+            booking: d.booking,
+            newBayId: targetBay.id,
+            newBayName: targetBay.name,
+            newStartTime: d.curStart
+          });
+          setShowMoveConfirm(true);
+        }
+      }
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [bookings, sortedSimulators, startHour, endHour, onBookingClick]);
 
   const confirmMove = async () => {
     if (!pendingMove) return;
@@ -327,7 +404,6 @@ export default function DailyScheduleView({
           </div>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <DragDropContext onDragEnd={handleDragEnd}>
             <div className="relative">
               {currentTimePosition !== null && (
                 <div
@@ -375,7 +451,7 @@ export default function DailyScheduleView({
                               reservation starts on a half hour or spans an hour
                               boundary — so the white cell right after a booking stays
                               clickable for manual bookings. */}
-                          <div className="flex">
+                          <div className="flex" data-bay-id={bay.id}>
                             {TIME_SLOTS.flatMap((timeSlot) => {
                               const [slotHour] = timeSlot.split(':').map(Number);
                               return generateHalfHourSlots(slotHour);
@@ -447,34 +523,26 @@ export default function DailyScheduleView({
                                         );
                                       }
 
+                                      const isDraggingThis =
+                                        dragUI && dragUI.moved && dragUI.booking.id === booking.id;
+
                                       return (
-                                        <Droppable key={dropId} droppableId={dropId} direction="horizontal">
-                                          {(provided) => (
-                                            <div
-                                              ref={provided.innerRef}
-                                              {...provided.droppableProps}
-                                              style={{ width: `${span * HOUR_WIDTH}px`, minWidth: `${span * HOUR_WIDTH}px`, position: 'relative' }}
-                                              className={isHourMark ? 'border-l-2 border-l-slate-400' : ''}
-                                            >
-                                              <Draggable draggableId={booking.id} index={0}>
-                                                {(provided, snapshot) => (
-                                                  <div
-                                                    ref={provided.innerRef}
-                                                    {...provided.draggableProps}
-                                                    {...provided.dragHandleProps}
-                                                    className={`absolute inset-0 border-r border-b cursor-move ${
-                                                      snapshot.isDragging ? 'z-50 opacity-80 shadow-2xl' : ''
-                                                    }`}
-                                                    onClick={() => onBookingClick(booking)}
-                                                  >
-                                                    {blockInner}
-                                                  </div>
-                                                )}
-                                              </Draggable>
-                                              {provided.placeholder}
-                                            </div>
-                                          )}
-                                        </Droppable>
+                                        <div
+                                          key={dropId}
+                                          style={{ width: `${span * HOUR_WIDTH}px`, minWidth: `${span * HOUR_WIDTH}px`, position: 'relative' }}
+                                          className={isHourMark ? 'border-l-2 border-l-slate-400' : ''}
+                                        >
+                                          <div
+                                            className={`absolute inset-0 border-r border-b cursor-move select-none ${
+                                              isDraggingThis ? 'opacity-50 ring-2 ring-[#2d5567] z-40' : ''
+                                            }`}
+                                            style={{ touchAction: 'none' }}
+                                            onPointerDown={(e) => beginDrag(e, booking)}
+                                            title="Drag to move · click to edit"
+                                          >
+                                            {blockInner}
+                                          </div>
+                                        </div>
                                       );
                                     }
 
@@ -515,27 +583,19 @@ export default function DailyScheduleView({
                                       );
                                     }
 
-                                    const dropId = `bay-${bay.id}-slot-${halfSlot}`;
+                                    const cellId = `bay-${bay.id}-slot-${halfSlot}`;
 
                                     return (
-                                      <Droppable key={dropId} droppableId={dropId} direction="horizontal">
-                                        {(provided, snapshot) => (
-                                          <div
-                                            ref={provided.innerRef}
-                                            {...provided.droppableProps}
-                                            className={`border-r border-b min-h-[60px] hover:bg-emerald-50 cursor-pointer relative group transition-colors ${
-                                              snapshot.isDraggingOver ? 'bg-emerald-100' : ''
-                                            } ${isHourMark ? 'border-l-2 border-l-slate-400' : 'border-l border-l-slate-300'}`}
-                                            style={{ width: `${HALF_WIDTH}px`, minWidth: `${HALF_WIDTH}px` }}
-                                            onClick={() => onTimeSlotClick(bay, halfSlot)}
-                                          >
-                                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                              <span className="text-xs text-emerald-600 font-semibold">+</span>
-                                            </div>
-                                            {provided.placeholder}
-                                          </div>
-                                        )}
-                                      </Droppable>
+                                      <div
+                                        key={cellId}
+                                        className={`border-r border-b min-h-[60px] hover:bg-emerald-50 cursor-pointer relative group transition-colors ${isHourMark ? 'border-l-2 border-l-slate-400' : 'border-l border-l-slate-300'}`}
+                                        style={{ width: `${HALF_WIDTH}px`, minWidth: `${HALF_WIDTH}px` }}
+                                        onClick={() => onTimeSlotClick(bay, halfSlot)}
+                                      >
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <span className="text-xs text-emerald-600 font-semibold">+</span>
+                                        </div>
+                                      </div>
                                     );
                             })}
                           </div>
@@ -546,9 +606,26 @@ export default function DailyScheduleView({
                 </tbody>
               </table>
             </div>
-          </DragDropContext>
         </CardContent>
       </Card>
+
+      {/* Floating indicator that follows the cursor while dragging, showing the
+          snapped target bay + time and whether the slot is available. */}
+      {dragUI && dragUI.moved && (
+        <div
+          className="fixed z-[60] pointer-events-none px-2.5 py-1.5 rounded-md text-xs font-semibold shadow-lg text-white"
+          style={{
+            left: dragUI.curX + 14,
+            top: dragUI.curY + 14,
+            backgroundColor: dragUI.valid ? '#059669' : '#dc2626'
+          }}
+        >
+          {getBayDisplayName(dragUI.curBayName || '')} · {formatTimeTo12Hour(dragUI.curStart)}–{formatTimeTo12Hour(dragUI.curEnd)}
+          {!dragUI.valid && (
+            <div className="text-[10px] font-normal opacity-90">Unavailable here</div>
+          )}
+        </div>
+      )}
 
       <AlertDialog open={showMoveConfirm} onOpenChange={setShowMoveConfirm}>
         <AlertDialogContent>
