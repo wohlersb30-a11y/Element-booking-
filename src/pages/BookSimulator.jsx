@@ -862,6 +862,8 @@ export default function BookSimulator() {
                                   rate={rate}
                                   totalCost={totalCost}
                                   duration={duration}
+                                  startTime={formatTimeLabel(effectiveTime)}
+                                  endTime={formatTimeLabel(effectiveEndTime)}
                                   onSelect={() => handleBaySelect({ bay, rate, totalCost })}
                                   isSelected={selectedBays.some(b => b.bay.id === bay.id)}
                                 />

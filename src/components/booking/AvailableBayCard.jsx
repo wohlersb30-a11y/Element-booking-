@@ -2,7 +2,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Sparkles, Check } from "lucide-react";
+import { Crown, Sparkles, Check, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 
 const getBayDisplayName = (originalName) => {
@@ -22,12 +22,14 @@ const getBayDisplayName = (originalName) => {
   return nameMap[originalName] || originalName;
 };
 
-export default function AvailableBayCard({ 
-  bay, 
-  rate, 
+export default function AvailableBayCard({
+  bay,
+  rate,
   totalCost,
   duration,
-  onSelect, 
+  startTime,
+  endTime,
+  onSelect,
   isSelected
 }) {
   const isVIP = bay.bay_type === "vip";
@@ -98,6 +100,17 @@ export default function AvailableBayCard({
           <p className="text-slate-600 text-sm mb-4 line-clamp-2">{bay.description}</p>
           
           <div className="bg-slate-50 rounded-xl p-4 mb-4 space-y-2">
+            {startTime && endTime && (
+              <div className="flex items-center justify-between gap-2 bg-[#2d5567]/10 border border-[#2d5567]/25 rounded-lg px-3 py-2.5 mb-1">
+                <div className="flex items-center gap-1.5 text-[#2d5567]">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase tracking-wide">Time</span>
+                </div>
+                <span className="text-base sm:text-lg font-black text-[#2d5567]">
+                  {startTime} – {endTime}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm text-slate-600">
               <span className="font-medium">Rate per hour</span>
               <span className="font-bold text-[#2d5567]">${rate}</span>
