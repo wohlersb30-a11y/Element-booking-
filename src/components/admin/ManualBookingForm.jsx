@@ -139,7 +139,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
   const hours = useLocationHours(location);
   const TIME_SLOTS = buildStartOptions(hours.open, hours.close, 30);
   const [formData, setFormData] = useState({
-    simulator_id: preselectedBay?.id || "",
+    simulator_ids: preselectedBay?.id ? [preselectedBay.id] : [],
     customer_name: "",
     customer_email: "",
     customer_phone: "",
@@ -301,21 +301,35 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
   // Update form when preselected values change
   useEffect(() => {
     if (preselectedBay) {
-      setFormData(prev => ({ ...prev, simulator_id: preselectedBay.id }));
+      setFormData(prev => ({ ...prev, simulator_ids: [preselectedBay.id] }));
     }
     if (preselectedTime) {
       setFormData(prev => ({ ...prev, start_time: preselectedTime }));
     }
   }, [preselectedBay, preselectedTime]);
 
-  const selectedBay = simulators.find(s => s.id === formData.simulator_id);
-  const totalCost = selectedBay && formData.start_time
-    ? calculateRate(
-        format(formData.booking_date, "yyyy-MM-dd"),
-        formData.start_time,
-        selectedBay
-      ) * formData.duration_hours
-    : 0;
+  // Toggle a bay in/out of the multi-bay selection.
+  const toggleBay = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      simulator_ids: prev.simulator_ids.includes(id)
+        ? prev.simulator_ids.filter(x => x !== id)
+        : [...prev.simulator_ids, id]
+    }));
+  };
+
+  // The set of bays chosen for this reservation (admins can select several at
+  // once — e.g. booking multiple bays for a large party or league night).
+  const selectedBays = simulators.filter(s => formData.simulator_ids.includes(s.id));
+
+  // Per-session cost = sum of every selected bay's rate × duration for the
+  // chosen date (VIP and standard bays can price differently).
+  const sessionCostFor = (date) =>
+    selectedBays.reduce(
+      (sum, bay) => sum + calculateRate(format(date, "yyyy-MM-dd"), formData.start_time, bay) * formData.duration_hours,
+      0
+    );
+  const totalCost = selectedBays.length && formData.start_time ? sessionCostFor(formData.booking_date) : 0;
 
   // For a recurring series: the list of session dates and the estimated total
   // across all of them (peak/off-peak pricing is recomputed per date).
@@ -324,13 +338,17 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     ? Array.from({ length: recurrenceCount }, (_, i) =>
         advanceDate(formData.booking_date, formData.recurrence_frequency, i))
     : [];
-  const seriesTotal = (selectedBay && formData.start_time)
-    ? recurringDates.reduce((sum, d) =>
-        sum + calculateRate(format(d, "yyyy-MM-dd"), formData.start_time, selectedBay) * formData.duration_hours, 0)
+  const seriesTotal = (selectedBays.length && formData.start_time)
+    ? recurringDates.reduce((sum, d) => sum + sessionCostFor(d), 0)
     : 0;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (formData.simulator_ids.length === 0) {
+      alert("Please select at least one bay.");
+      return;
+    }
 
     if (!formData.reservation_type) {
       alert("Please select a reservation type.");
@@ -347,9 +365,9 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       const newEndMins = neH * 60 + neM;
       const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
 
-      const hasBookingConflict = (formattedDate) =>
+      const hasBookingConflict = (formattedDate, bayId) =>
         existingBookings.some(booking => {
-          if (booking.simulator_id !== formData.simulator_id) return false;
+          if (booking.simulator_id !== bayId) return false;
           if (booking.booking_date !== formattedDate) return false;
           if (booking.status === 'cancelled') return false;
           const [bsH, bsM] = booking.start_time.split(':').map(Number);
@@ -357,18 +375,18 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           return overlaps(newStartMins, newEndMins, bsH * 60 + bsM, beH * 60 + beM);
         });
 
-      const hasBlockConflict = (formattedDate) =>
+      const hasBlockConflict = (formattedDate, bayId) =>
         existingBlocks.some(block => {
-          if (block.simulator_id !== formData.simulator_id) return false;
+          if (block.simulator_id !== bayId) return false;
           if (block.block_date !== formattedDate) return false;
           const [bsH, bsM] = block.start_time.split(':').map(Number);
           const [beH, beM] = block.end_time.split(':').map(Number);
           return overlaps(newStartMins, newEndMins, bsH * 60 + bsM, beH * 60 + beM);
         });
 
-      const buildBookingData = (formattedDate, cost) => ({
-        simulator_id: formData.simulator_id,
-        simulator_name: selectedBay.name,
+      const buildBookingData = (formattedDate, cost, bay) => ({
+        simulator_id: bay.id,
+        simulator_name: bay.name,
         location: location,
         customer_name: formData.customer_name,
         customer_email: formData.customer_email,
@@ -387,15 +405,16 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         bay_locked: formData.bay_locked
       });
 
-      // For a single booking, keep the original specific error messages.
-      if (!formData.is_recurring) {
+      // For a single bay on a single date, keep the original specific messages.
+      if (!formData.is_recurring && selectedBays.length === 1) {
+        const bay = selectedBays[0];
         const formattedDate = format(formData.booking_date, "yyyy-MM-dd");
-        if (hasBookingConflict(formattedDate)) {
+        if (hasBookingConflict(formattedDate, bay.id)) {
           alert("This time slot conflicts with an existing booking. Please choose a different time.");
           setIsSubmitting(false);
           return;
         }
-        if (hasBlockConflict(formattedDate)) {
+        if (hasBlockConflict(formattedDate, bay.id)) {
           alert("This time slot is blocked. Please choose a different time.");
           setIsSubmitting(false);
           return;
@@ -406,58 +425,77 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
 
       const created = [];
       const skipped = [];
-      let firstBookingData = null;
+      // Bookings created for the first successful session, used to build a single
+      // confirmation that lists every bay booked for that session.
+      let firstSessionKey = null;
+      const firstSessionBookings = [];
 
       for (const d of dates) {
         const formattedDate = format(d, "yyyy-MM-dd");
-        // Skip any occurrence that collides with a booking or a block.
-        if (hasBookingConflict(formattedDate) || hasBlockConflict(formattedDate)) {
-          skipped.push(format(d, "EEE MMM d"));
-          continue;
+        // Create one reservation per selected bay for this date.
+        for (const bay of selectedBays) {
+          // Skip any bay/date that collides with a booking or a block.
+          if (hasBookingConflict(formattedDate, bay.id) || hasBlockConflict(formattedDate, bay.id)) {
+            skipped.push(`${getBayDisplayName(bay.name)} on ${format(d, "EEE MMM d")}`);
+            continue;
+          }
+          const cost = calculateRate(formattedDate, formData.start_time, bay) * formData.duration_hours;
+          const bookingData = buildBookingData(formattedDate, cost, bay);
+          await Booking.create(bookingData);
+          created.push(formattedDate);
+          if (firstSessionKey === null) firstSessionKey = formattedDate;
+          if (formattedDate === firstSessionKey) firstSessionBookings.push({ bay, cost, bookingData });
         }
-        const cost = calculateRate(formattedDate, formData.start_time, selectedBay) * formData.duration_hours;
-        const bookingData = buildBookingData(formattedDate, cost);
-        await Booking.create(bookingData);
-        created.push(formattedDate);
-        if (!firstBookingData) firstBookingData = bookingData;
       }
 
       if (created.length === 0) {
-        alert("No reservations were created — every selected date conflicts with an existing booking or block.");
+        alert("No reservations were created — every selected bay conflicts with an existing booking or block.");
         setIsSubmitting(false);
         return;
       }
 
-      // Send ONE confirmation (the first reservation) so a recurring series
-      // doesn't email/text the customer once per session. sendBookingConfirmation
-      // resolves with { success: false } (rather than throwing) when the send
-      // fails, so we inspect the result and surface any failure to the admin —
-      // this way a manually-booked customer never silently goes without a
-      // confirmation email.
+      // Send ONE confirmation for the first session, summarizing every bay booked
+      // for that session (so a multi-bay party or a recurring series gets a single
+      // email/text, not one per bay or per week). sendBookingConfirmation resolves
+      // with { success: false } (rather than throwing) on failure, so we inspect
+      // the result and surface any failure to the admin — this way a manually
+      // booked customer never silently goes without a confirmation email.
       let emailFailed = false;
-      if (firstBookingData) {
+      if (firstSessionBookings.length > 0) {
+        const bayNames = firstSessionBookings
+          .map(({ bay }) => getBayDisplayName(bay.name))
+          .join(", ");
+        const sessionCost = firstSessionBookings.reduce((sum, b) => sum + b.cost, 0);
+        const confirmationData = {
+          ...firstSessionBookings[0].bookingData,
+          simulator_name: bayNames,
+          total_cost: sessionCost
+        };
         const [emailResult] = await Promise.all([
-          sendBookingConfirmation(firstBookingData).catch((err) => {
+          sendBookingConfirmation(confirmationData).catch((err) => {
             console.error("Confirmation email failed:", err);
             return { success: false, error: err };
           }),
-          sendBookingConfirmationSMS(firstBookingData).catch((err) =>
+          sendBookingConfirmationSMS(confirmationData).catch((err) =>
             console.error("Confirmation SMS failed:", err)
           )
         ]);
         emailFailed = !emailResult || emailResult.success === false;
       }
 
-      const emailAddr = firstBookingData?.customer_email || "the customer";
+      const emailAddr = formData.customer_email || "the customer";
 
-      if (formData.is_recurring) {
+      // Show a summary whenever more than one reservation could have been created
+      // (multiple bays and/or a recurring series); otherwise keep the quiet
+      // single-booking flow (only speak up if the email failed).
+      if (selectedBays.length > 1 || formData.is_recurring) {
         let msg = `Created ${created.length} reservation${created.length === 1 ? "" : "s"}.`;
         if (skipped.length) {
-          msg += `\n\nSkipped ${skipped.length} date${skipped.length === 1 ? "" : "s"} due to conflicts:\n${skipped.join(", ")}`;
+          msg += `\n\nSkipped ${skipped.length} due to conflicts:\n${skipped.join(", ")}`;
         }
         msg += emailFailed
           ? `\n\n⚠️ The confirmation email could NOT be sent to ${emailAddr}. Please double-check the email address and follow up with the customer.`
-          : `\n\nOne confirmation was sent to the customer for the series.`;
+          : `\n\nOne confirmation was sent to the customer.`;
         alert(msg);
       } else if (emailFailed) {
         alert(`Reservation created — but the confirmation email could NOT be sent to ${emailAddr}. Please double-check the email address and follow up with the customer.`);
@@ -499,24 +537,39 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           </div>
         </div>
 
-        {/* Bay Selection */}
+        {/* Bay Selection — admins can pick more than one bay at a time. */}
         <div className="space-y-2">
-          <Label htmlFor="bay">Select Bay *</Label>
-          <Select 
-            value={formData.simulator_id} 
-            onValueChange={(value) => setFormData({...formData, simulator_id: value})}
-          >
-            <SelectTrigger className="h-12">
-              <SelectValue placeholder="Choose a bay" />
-            </SelectTrigger>
-            <SelectContent>
-              {sortedSimulators.map(bay => (
-                <SelectItem key={bay.id} value={bay.id}>
-                  {getBayDisplayName(bay.name)}{bay.bay_type === "vip" ? " - VIP" : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label>
+            Select Bays <span className="text-red-500">*</span>{" "}
+            <span className="text-xs font-normal text-slate-500">(choose one or more)</span>
+          </Label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {sortedSimulators.map(bay => {
+              const checked = formData.simulator_ids.includes(bay.id);
+              return (
+                <button
+                  type="button"
+                  key={bay.id}
+                  onClick={() => toggleBay(bay.id)}
+                  className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2.5 text-left transition-colors ${
+                    checked
+                      ? "border-[#2d5567] bg-[#2d5567]/10"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <Checkbox checked={checked} className="pointer-events-none" />
+                  <span className="text-sm font-medium text-slate-800">
+                    {getBayDisplayName(bay.name)}{bay.bay_type === "vip" ? " · VIP" : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {formData.simulator_ids.length > 0 && (
+            <p className="text-xs text-slate-500">
+              {formData.simulator_ids.length} bay{formData.simulator_ids.length === 1 ? "" : "s"} selected
+            </p>
+          )}
         </div>
 
         {/* Time and Duration */}
@@ -735,8 +788,8 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
               Customer prefers this bay
             </Label>
             <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-              Lock this reservation to the selected bay. When checked, the Smart
-              Schedule Optimizer will never move it to a different bay.
+              Lock these reservations to their selected bays. When checked, the Smart
+              Schedule Optimizer will never move them to a different bay.
             </p>
           </div>
         </div>
@@ -756,7 +809,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
                 Create recurring reservation
               </Label>
               <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                Book this same bay, time, and duration on a repeating schedule — great for leagues and regulars.
+                Book these same bays, time, and duration on a repeating schedule — great for leagues and regulars.
               </p>
             </div>
           </div>
@@ -814,14 +867,16 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           <div className="p-4 bg-emerald-50 rounded-lg space-y-1">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-lg">
-                {formData.is_recurring ? "Cost per session:" : "Total Cost:"}
+                {formData.is_recurring
+                  ? `Cost per session${selectedBays.length > 1 ? ` (${selectedBays.length} bays)` : ""}:`
+                  : `Total Cost${selectedBays.length > 1 ? ` (${selectedBays.length} bays)` : ""}:`}
               </span>
               <span className="text-2xl font-bold text-[#2d5567]">${totalCost.toFixed(2)}</span>
             </div>
             {formData.is_recurring && recurringDates.length > 0 && (
               <div className="flex justify-between items-center pt-2 border-t border-emerald-200">
                 <span className="font-semibold text-sm text-slate-700">
-                  Estimated series total ({recurringDates.length} sessions):
+                  Estimated series total ({recurringDates.length} session{recurringDates.length === 1 ? "" : "s"} × {selectedBays.length} bay{selectedBays.length === 1 ? "" : "s"}):
                 </span>
                 <span className="text-lg font-bold text-[#2d5567]">${seriesTotal.toFixed(2)}</span>
               </div>
@@ -841,7 +896,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           </Button>
           <Button
             type="submit"
-            disabled={isSubmitting || !formData.simulator_id || !formData.start_time}
+            disabled={isSubmitting || formData.simulator_ids.length === 0 || !formData.start_time}
             className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
           >
             {isSubmitting ? (
@@ -850,9 +905,10 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
                 Creating...
               </>
             ) : (
-              formData.is_recurring
-                ? `Create ${recurringDates.length} Booking${recurringDates.length === 1 ? "" : "s"}`
-                : "Create Booking"
+              (() => {
+                const n = (formData.is_recurring ? recurringDates.length : 1) * (formData.simulator_ids.length || 1);
+                return `Create ${n} Booking${n === 1 ? "" : "s"}`;
+              })()
             )}
           </Button>
         </div>
