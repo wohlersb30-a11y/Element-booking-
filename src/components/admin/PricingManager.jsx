@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,14 @@ const getBayDisplayName = (originalName) => {
   return nameMap[originalName] || originalName;
 };
 
+// Parse a 'yyyy-MM-dd' string into a Date at LOCAL midnight (avoids the
+// UTC-shift that `new Date('2026-12-25')` would introduce).
+const parseYMD = (value) => {
+  if (!value) return null;
+  const [y, m, d] = String(value).split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+
 export default function PricingManager({ simulators, onClose, onComplete }) {
   const [pricing, setPricing] = useState({
     standard_off_peak: 50,
@@ -54,6 +63,80 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
     label: ""
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Preload the current default rates + existing date-range rules so the form
+  // reflects what's live (and Save doesn't overwrite the other bay type's rates
+  // or silently drop existing ranges).
+  useEffect(() => {
+    if (!simulators || simulators.length === 0) return;
+
+    const std = simulators.find((s) => s.bay_type !== "vip");
+    const vip = simulators.find((s) => s.bay_type === "vip");
+    setPricing({
+      standard_off_peak: std?.pricing_off_peak ?? 50,
+      standard_peak: std?.pricing_peak ?? 60,
+      vip_off_peak: vip?.pricing_off_peak ?? 65,
+      vip_peak: vip?.pricing_peak ?? 85
+    });
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const ids = simulators.map((s) => s.id);
+        const { data, error } = await supabase
+          .from("pricing_rules")
+          .select("*")
+          .in("simulator_id", ids);
+        if (error) throw error;
+        if (cancelled) return;
+
+        const typeById = {};
+        simulators.forEach((s) => {
+          typeById[s.id] = s.bay_type === "vip" ? "vip" : "standard";
+        });
+
+        // Rows are stored per-simulator; regroup into the form's combined
+        // (standard + VIP) range entries keyed by label + date span.
+        const groups = {};
+        for (const r of data || []) {
+          const key = `${r.name || ""}|${r.start_date}|${r.end_date}`;
+          const g = groups[key] || (groups[key] = {
+            label: r.name || "",
+            start_date: parseYMD(r.start_date),
+            end_date: parseYMD(r.end_date),
+            standard_off_peak: null,
+            standard_peak: null,
+            vip_off_peak: null,
+            vip_peak: null
+          });
+          if (typeById[r.simulator_id] === "vip") {
+            g.vip_off_peak = r.off_peak_rate;
+            g.vip_peak = r.peak_rate;
+          } else {
+            g.standard_off_peak = r.off_peak_rate;
+            g.standard_peak = r.peak_rate;
+          }
+        }
+
+        const ranges = Object.values(groups).map((g) => ({
+          label: g.label,
+          start_date: g.start_date,
+          end_date: g.end_date,
+          standard_off_peak: g.standard_off_peak ?? 50,
+          standard_peak: g.standard_peak ?? 60,
+          vip_off_peak: g.vip_off_peak ?? 65,
+          vip_peak: g.vip_peak ?? 85
+        }));
+        setDateRanges(ranges);
+      } catch (err) {
+        console.error("Error loading existing pricing rules:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [simulators]);
 
   const handleAddDateRange = () => {
     if (!newRange.start_date || !newRange.end_date) {
@@ -82,27 +165,48 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
     setIsSubmitting(true);
 
     try {
-      // Update each simulator with new pricing data
+      // 1) Default peak/off-peak rates live directly on the simulators table.
+      //    (Date ranges are NOT a column here — they live in `pricing_rules`.)
       const updates = simulators.map(sim => {
         const isVIP = sim.bay_type === "vip";
-        
-        // Create pricing rules for this bay type
-        const pricingRules = dateRanges.map(range => ({
-          start_date: format(range.start_date, "yyyy-MM-dd"),
-          end_date: format(range.end_date, "yyyy-MM-dd"),
-          off_peak_rate: isVIP ? range.vip_off_peak : range.standard_off_peak,
-          peak_rate: isVIP ? range.vip_peak : range.standard_peak,
-          label: range.label
-        }));
-
         return base44.entities.Simulator.update(sim.id, {
           pricing_off_peak: isVIP ? pricing.vip_off_peak : pricing.standard_off_peak,
-          pricing_peak: isVIP ? pricing.vip_peak : pricing.standard_peak,
-          pricing_rules: pricingRules
+          pricing_peak: isVIP ? pricing.vip_peak : pricing.standard_peak
         });
       });
-
       await Promise.all(updates);
+
+      // 2) Replace date-range rules for these simulators. The form was
+      //    preloaded with all existing ranges, so this is a faithful replace of
+      //    the full set the admin is looking at (not a silent wipe).
+      const ids = simulators.map(sim => sim.id);
+      if (ids.length > 0) {
+        const { error: delError } = await supabase
+          .from("pricing_rules")
+          .delete()
+          .in("simulator_id", ids);
+        if (delError) throw delError;
+      }
+
+      const rows = [];
+      for (const sim of simulators) {
+        const isVIP = sim.bay_type === "vip";
+        for (const range of dateRanges) {
+          rows.push({
+            simulator_id: sim.id,
+            name: range.label || null,
+            start_date: format(range.start_date, "yyyy-MM-dd"),
+            end_date: format(range.end_date, "yyyy-MM-dd"),
+            off_peak_rate: isVIP ? range.vip_off_peak : range.standard_off_peak,
+            peak_rate: isVIP ? range.vip_peak : range.standard_peak
+          });
+        }
+      }
+      if (rows.length > 0) {
+        const { error: insError } = await supabase.from("pricing_rules").insert(rows);
+        if (insError) throw insError;
+      }
+
       onComplete();
     } catch (error) {
       console.error("Error updating pricing:", error);
