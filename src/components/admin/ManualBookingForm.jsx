@@ -59,8 +59,18 @@ const fmtPhone = (p) => {
   return p;
 };
 
+// Parse a 'yyyy-MM-dd' string as a LOCAL date. new Date('yyyy-MM-dd') parses as
+// UTC midnight, which shifts to the previous day in US timezones and throws off
+// the day-of-week (breaking peak detection). Build from parts instead.
+const parseLocalDate = (date) => {
+  if (date instanceof Date) return date;
+  const [y, m, d] = String(date).split("-").map(Number);
+  if (!y || !m || !d) return new Date(date);
+  return new Date(y, m - 1, d);
+};
+
 const calculateRate = (date, startTime, simulator) => {
-  const bookingDate = new Date(date);
+  const bookingDate = parseLocalDate(date);
   // Normalize bookingDate to start of day for comparison purposes to avoid time zone issues
   bookingDate.setHours(0, 0, 0, 0);
 
@@ -75,9 +85,9 @@ const calculateRate = (date, startTime, simulator) => {
   // Check if there's a date-specific pricing rule for this date
   if (simulator && simulator.pricing_rules && simulator.pricing_rules.length > 0) {
     for (const rule of simulator.pricing_rules) {
-      const ruleStart = new Date(rule.start_date);
+      const ruleStart = parseLocalDate(rule.start_date);
       ruleStart.setHours(0, 0, 0, 0); // Normalize rule start date
-      const ruleEnd = new Date(rule.end_date);
+      const ruleEnd = parseLocalDate(rule.end_date);
       ruleEnd.setHours(0, 0, 0, 0); // Normalize rule end date
       
       if (bookingDate >= ruleStart && bookingDate <= ruleEnd) {

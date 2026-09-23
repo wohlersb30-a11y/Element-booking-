@@ -26,8 +26,18 @@ import WaitlistForm from "../components/booking/WaitlistForm";
 import SpecialsModal from "../components/booking/SpecialsModal";
 import { getBayBaseName } from "@/lib/bayNames";
 
+// Parse a 'yyyy-MM-dd' string as a LOCAL date. Using new Date('yyyy-MM-dd')
+// parses as UTC midnight, which shifts to the previous day in US timezones and
+// throws off the day-of-week (breaking peak detection). Build from parts instead.
+const parseLocalDate = (date) => {
+  if (date instanceof Date) return date;
+  const [y, m, d] = String(date).split("-").map(Number);
+  if (!y || !m || !d) return new Date(date);
+  return new Date(y, m - 1, d);
+};
+
 const calculateRate = (date, startTime, bayType, simulator) => {
-  const bookingDate = new Date(date);
+  const bookingDate = parseLocalDate(date);
   const dayOfWeek = bookingDate.getDay();
   const hour = parseInt(startTime.split(':')[0]);
   
@@ -39,9 +49,9 @@ const calculateRate = (date, startTime, bayType, simulator) => {
   // Check if there's a date-specific pricing rule for this date
   if (simulator && simulator.pricing_rules && simulator.pricing_rules.length > 0) {
     for (const rule of simulator.pricing_rules) {
-      const ruleStart = new Date(rule.start_date);
-      const ruleEnd = new Date(rule.end_date);
-      
+      const ruleStart = parseLocalDate(rule.start_date);
+      const ruleEnd = parseLocalDate(rule.end_date);
+
       // Ensure we compare dates without time components for the range check
       const bookingDateOnly = new Date(bookingDate.getFullYear(), bookingDate.getMonth(), bookingDate.getDate());
       const ruleStartOnly = new Date(ruleStart.getFullYear(), ruleStart.getMonth(), ruleStart.getDate());
