@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, Lock, Crown } from "lucide-react";
+import { Users, Lock, Crown, Tag } from "lucide-react";
 import { Booking } from "@/entities/Booking";
 import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
 import { useLocationHours, toMinutes, closeTimeForDate } from "@/config/hours";
@@ -96,6 +96,27 @@ const getBaySortOrder = (originalName) => {
   return orderMap[originalName] || 999;
 };
 
+const OVERRIDE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Format a 'yyyy-MM-dd' string as e.g. "Dec 25" for the override banner.
+const formatYMDLabel = (ymd) => {
+  if (!ymd) return "";
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  return `${OVERRIDE_MONTHS[(m || 1) - 1]} ${d}`;
+};
+
+// Whether a Date falls within a ['yyyy-MM-dd', 'yyyy-MM-dd'] range, compared at
+// local date granularity (no time component, no UTC shift).
+const dateInRange = (viewDate, startStr, endStr) => {
+  if (!viewDate || !startStr || !endStr) return false;
+  const d = new Date(viewDate.getFullYear(), viewDate.getMonth(), viewDate.getDate());
+  const [sy, sm, sd] = startStr.split('-').map(Number);
+  const [ey, em, ed] = endStr.split('-').map(Number);
+  const s = new Date(sy, (sm || 1) - 1, sd || 1);
+  const e = new Date(ey, (em || 1) - 1, ed || 1);
+  return d >= s && d <= e;
+};
+
 const calculateEndTime = (startTime, durationHours) => {
   const [hours, minutes] = startTime.split(':').map(Number);
   const totalMinutes = hours * 60 + minutes + (durationHours * 60);
@@ -187,6 +208,39 @@ export default function DailyScheduleView({
     () => [...simulators].sort((a, b) => getBaySortOrder(a.name) - getBaySortOrder(b.name)),
     [simulators]
   );
+
+  // Date-range price overrides that are active on the currently-viewed day.
+  // Rules are stored per-simulator (see the pricing_rules table); here we
+  // regroup the matching ones by label + date span and split their rates back
+  // into Regular vs VIP so staff can see, at a glance, exactly what a customer
+  // will be charged for this date.
+  const priceOverrides = useMemo(() => {
+    const groups = {};
+    for (const bay of sortedSimulators) {
+      const isVIP = bay.bay_type === "vip";
+      for (const rule of bay.pricing_rules || []) {
+        if (!dateInRange(date, rule.start_date, rule.end_date)) continue;
+        const key = `${rule.name || ""}|${rule.start_date}|${rule.end_date}`;
+        const g = groups[key] || (groups[key] = {
+          label: rule.name || "Custom pricing",
+          start_date: rule.start_date,
+          end_date: rule.end_date,
+          std_off: null,
+          std_peak: null,
+          vip_off: null,
+          vip_peak: null
+        });
+        if (isVIP) {
+          g.vip_off = rule.off_peak_rate;
+          g.vip_peak = rule.peak_rate;
+        } else {
+          g.std_off = rule.off_peak_rate;
+          g.std_peak = rule.peak_rate;
+        }
+      }
+    }
+    return Object.values(groups);
+  }, [sortedSimulators, date]);
 
   const getBookingForBayAndTime = (bayId, timeSlot) => {
     return bookings.find(booking => {
@@ -402,6 +456,38 @@ export default function DailyScheduleView({
               <span className="text-xs text-slate-600">Blocked</span>
             </div>
           </div>
+
+          {/* Price-override indicator: shows any date-range pricing that is
+              active for the day currently on screen, so staff can confirm what
+              customers are being charged. */}
+          {priceOverrides.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {priceOverrides.map((o, i) => (
+                <div
+                  key={i}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2"
+                >
+                  <div className="flex items-center gap-1.5 text-amber-800 font-bold text-[11px] uppercase tracking-wide">
+                    <Tag className="w-3.5 h-3.5" />
+                    Price override active
+                  </div>
+                  <span className="text-sm font-bold text-amber-900">{o.label}</span>
+                  <span className="text-xs text-amber-700">
+                    {formatYMDLabel(o.start_date)} – {formatYMDLabel(o.end_date)}
+                  </span>
+                  <span className="text-xs text-amber-900 font-medium">
+                    {o.std_off != null && (
+                      <span>Regular ${o.std_off}/${o.std_peak}<span className="text-amber-700 font-normal"> (off/peak)</span></span>
+                    )}
+                    {o.std_off != null && o.vip_off != null && <span className="mx-1">·</span>}
+                    {o.vip_off != null && (
+                      <span>VIP ${o.vip_off}/${o.vip_peak}<span className="text-amber-700 font-normal"> (off/peak)</span></span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
             <div className="relative">
