@@ -44,7 +44,7 @@ const calculateEndTime = (startTime, duration) => {
 const computeBaseRate = (bay, date, startTime) => {
   const day = date.getDay();
   const hour = parseInt(startTime.split(":")[0], 10);
-  const isPeak = (day === 5 && hour >= 15) || day === 0 || day === 6;
+  const isPeak = (day === 5 && hour >= 12) || day === 0 || day === 6;
   if (Array.isArray(bay.pricing_rules) && bay.pricing_rules.length > 0) {
     for (const rule of bay.pricing_rules) {
       const rs = new Date(rule.start_date);

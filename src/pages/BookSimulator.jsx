@@ -31,9 +31,10 @@ const calculateRate = (date, startTime, bayType, simulator) => {
   const dayOfWeek = bookingDate.getDay();
   const hour = parseInt(startTime.split(':')[0]);
   
-  const isFridayAfter3pm = dayOfWeek === 5 && hour >= 15;
+  // Peak = Friday from noon through Sunday close. Everything else is off-peak.
+  const isFridayFromNoon = dayOfWeek === 5 && hour >= 12;
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  const isPeakTime = isFridayAfter3pm || isWeekend;
+  const isPeakTime = isFridayFromNoon || isWeekend;
   
   // Check if there's a date-specific pricing rule for this date
   if (simulator && simulator.pricing_rules && simulator.pricing_rules.length > 0) {

@@ -232,7 +232,7 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
                       className="pl-10 h-12"
                     />
                   </div>
-                  <p className="text-xs text-slate-500">Monday-Thursday & Friday before 3pm</p>
+                  <p className="text-xs text-slate-500">Monday-Thursday & Friday before noon</p>
                 </div>
 
                 <div className="space-y-2">
@@ -249,7 +249,7 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
                       className="pl-10 h-12"
                     />
                   </div>
-                  <p className="text-xs text-slate-500">Friday after 3pm & Weekends</p>
+                  <p className="text-xs text-slate-500">Friday from noon & Weekends</p>
                 </div>
               </div>
 
@@ -270,7 +270,7 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
                       className="pl-10 h-12"
                     />
                   </div>
-                  <p className="text-xs text-slate-500">Monday-Thursday & Friday before 3pm</p>
+                  <p className="text-xs text-slate-500">Monday-Thursday & Friday before noon</p>
                 </div>
 
                 <div className="space-y-2">
@@ -287,7 +287,7 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
                       className="pl-10 h-12"
                     />
                   </div>
-                  <p className="text-xs text-slate-500">Friday after 3pm & Weekends</p>
+                  <p className="text-xs text-slate-500">Friday from noon & Weekends</p>
                 </div>
               </div>
             </div>

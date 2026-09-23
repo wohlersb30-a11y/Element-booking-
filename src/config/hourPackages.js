@@ -42,17 +42,15 @@ function toLocalDate(date) {
   return new Date(y, m - 1, d);
 }
 
-// Peak = weekends, or Friday at/after 3pm. Matches the app's existing pricing
-// rule in BookSimulator (calculateRate). NOTE: the marketing page describes
-// off-peak as "Fri before noon" — the Fri noon–3pm window is treated as
-// off-peak here; confirm with owner if that should be peak.
+// Peak = Friday from noon through Sunday close. Everything else is off-peak.
+// Matches the app's pricing rule in BookSimulator (calculateRate).
 export function isPeakSlot(date, startTime) {
   const d = toLocalDate(date);
   const dow = d.getDay(); // 0 = Sun, 6 = Sat
   const hour = parseInt(String(startTime).split(":")[0], 10);
   const isWeekend = dow === 0 || dow === 6;
-  const isFridayAfter3pm = dow === 5 && hour >= 15;
-  return isWeekend || isFridayAfter3pm;
+  const isFridayFromNoon = dow === 5 && hour >= 12;
+  return isWeekend || isFridayFromNoon;
 }
 
 // Buckets that can cover a slot, in preference (spend) order.

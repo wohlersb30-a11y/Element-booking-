@@ -45,14 +45,14 @@ function toLocalDate(date: string | Date): Date {
   return new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
 }
 
-// Peak = weekends, or Friday at/after 3pm. Mirrors the app's pricing rule.
+// Peak = Friday from noon through Sunday close. Mirrors the app's pricing rule.
 export function isPeakSlot(date: string | Date, startTime: string): boolean {
   const d = toLocalDate(date);
   const dow = d.getDay();
   const hour = parseInt(String(startTime).split(":")[0], 10);
   const isWeekend = dow === 0 || dow === 6;
-  const isFridayAfter3pm = dow === 5 && hour >= 15;
-  return isWeekend || isFridayAfter3pm;
+  const isFridayFromNoon = dow === 5 && hour >= 12;
+  return isWeekend || isFridayFromNoon;
 }
 
 // Buckets that can cover a slot, in preference (spend) order.

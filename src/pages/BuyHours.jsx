@@ -134,7 +134,7 @@ export default function BuyHours() {
                     <li className="flex items-center gap-2"><Clock className="w-4 h-4 text-slate-400" /> {pkg.size} hours added to your account</li>
                     <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500" /> Never expires</li>
                     <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500" />
-                      {isPeak ? "Use for any time slot" : "Use for off-peak slots (weekdays + Fri before 3pm)"}
+                      {isPeak ? "Use for any time slot" : "Use for off-peak slots (weekdays + Fri before noon)"}
                     </li>
                   </ul>
                   <Button
