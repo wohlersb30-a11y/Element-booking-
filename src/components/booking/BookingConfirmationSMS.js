@@ -1,4 +1,5 @@
 import { base44 } from "@/api/base44Client";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 // Customer-facing business details. Keep in sync with
 // supabase/functions/_shared/locations.ts and BookingConfirmationEmail.jsx.
@@ -14,23 +15,6 @@ const LOCATIONS = {
 
 const locationLabel = (location) =>
   (location && LOCATIONS[location]?.label) || BRAND.name;
-
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 const formatTime = (time24) => {
   const [hours, minutes] = String(time24).split(":").map(Number);
@@ -59,7 +43,7 @@ export async function sendBookingConfirmationSMS(bookingData) {
 
   if (!customer_phone) return { success: false, skipped: true };
 
-  const bay = getBayDisplayName(simulator_name);
+  const bay = getBayDisplayName(simulator_name, location);
   const body =
     `\u26F3 ${BRAND.name}: You're booked! ${bay} at ${locationLabel(location)} on ` +
     `${formatDate(booking_date)} at ${formatTime(start_time)}. ` +

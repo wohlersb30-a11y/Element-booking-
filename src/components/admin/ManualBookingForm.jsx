@@ -16,6 +16,7 @@ import { sendBookingConfirmation } from "../booking/BookingConfirmationEmail";
 import { sendBookingConfirmationSMS } from "../booking/BookingConfirmationSMS";
 import { RESERVATION_TYPE_OPTIONS } from "@/lib/bookingCategories";
 import { useLocationHours, buildStartOptions } from "@/config/hours";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const DURATIONS = [
   { value: 1, label: "1 hour" },
@@ -99,22 +100,6 @@ const calculateRate = (date, startTime, simulator) => {
   }
 };
 
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 const getBaySortOrder = (originalName) => {
   const orderMap = {
@@ -436,7 +421,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
         for (const bay of selectedBays) {
           // Skip any bay/date that collides with a booking or a block.
           if (hasBookingConflict(formattedDate, bay.id) || hasBlockConflict(formattedDate, bay.id)) {
-            skipped.push(`${getBayDisplayName(bay.name)} on ${format(d, "EEE MMM d")}`);
+            skipped.push(`${getBayDisplayName(bay.name, location)} on ${format(d, "EEE MMM d")}`);
             continue;
           }
           const cost = calculateRate(formattedDate, formData.start_time, bay) * formData.duration_hours;
@@ -463,7 +448,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       let emailFailed = false;
       if (firstSessionBookings.length > 0) {
         const bayNames = firstSessionBookings
-          .map(({ bay }) => getBayDisplayName(bay.name))
+          .map(({ bay }) => getBayDisplayName(bay.name, location))
           .join(", ");
         const sessionCost = firstSessionBookings.reduce((sum, b) => sum + b.cost, 0);
         const confirmationData = {
@@ -559,7 +544,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
                 >
                   <Checkbox checked={checked} className="pointer-events-none" />
                   <span className="text-sm font-medium text-slate-800">
-                    {getBayDisplayName(bay.name)}{bay.bay_type === "vip" ? " · VIP" : ""}
+                    {getBayDisplayName(bay.name, location)}{bay.bay_type === "vip" ? " · VIP" : ""}
                   </span>
                 </button>
               );

@@ -12,17 +12,7 @@ import {
   Tooltip,
   CartesianGrid
 } from "recharts";
-
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1", "East 2": "Bay 2",
-    "West 1": "Bay 3", "West 2": "Bay 4", "West 3": "Bay 5",
-    "South 1": "Bay 6", "South 2": "Bay 7",
-    "North 1": "Bay 8", "North 2": "Bay 9",
-    "VIP 1": "VIP 1", "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const formatHour = (hour) => {
   const h = hour % 12 || 12;
@@ -80,7 +70,7 @@ export default function AdminAnalytics({ location = null, days = 30 }) {
   // Bookings by bay
   const byBayMap = {};
   active.forEach((b) => {
-    const name = getBayDisplayName(b.simulator_name);
+    const name = getBayDisplayName(b.simulator_name, b.location);
     byBayMap[name] = (byBayMap[name] || 0) + 1;
   });
   const bookingsByBay = Object.keys(byBayMap)

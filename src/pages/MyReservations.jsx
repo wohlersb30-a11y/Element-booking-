@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from "framer-motion";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 // Defensive: never throw on a missing/malformed time string.
 const formatTime = (time24) => {
@@ -70,22 +71,6 @@ const getPaymentStatusColor = (status) => {
   return colors[status] || "bg-slate-100 text-slate-800";
 };
 
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 // Helper function for page URLs
 const createPageUrl = (pageName) => {
@@ -179,7 +164,7 @@ export default function MyReservations() {
 
     const rows = [
       ["Confirmation ID", String(booking.id || "—")],
-      ["Bay", getBayDisplayName(booking.simulator_name)],
+      ["Bay", getBayDisplayName(booking.simulator_name, booking.location)],
       ["Location", booking.location || "—"],
       ["Date", fmtDate(booking.booking_date, "EEEE, MMMM d, yyyy")],
       ["Time", `${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`],
@@ -310,7 +295,7 @@ export default function MyReservations() {
                       <CardHeader className="px-4 py-4 sm:p-6 pb-3">
                         <div className="flex items-start justify-between gap-3">
                           <CardTitle className="text-lg sm:text-xl text-slate-800 leading-tight">
-                            {getBayDisplayName(booking.simulator_name)}
+                            {getBayDisplayName(booking.simulator_name, booking.location)}
                           </CardTitle>
                           <div className="flex flex-col gap-2 items-end flex-shrink-0">
                             <Badge className="bg-emerald-100 text-emerald-800 text-xs">
@@ -457,7 +442,7 @@ export default function MyReservations() {
                   <CardHeader className="px-4 py-4 sm:p-6 pb-3">
                     <div className="flex items-start justify-between gap-3">
                       <CardTitle className="text-base sm:text-xl text-slate-700">
-                        {getBayDisplayName(booking.simulator_name)}
+                        {getBayDisplayName(booking.simulator_name, booking.location)}
                       </CardTitle>
                       <div className="flex flex-col gap-2 items-end flex-shrink-0">
                         <Badge variant="outline" className={`${

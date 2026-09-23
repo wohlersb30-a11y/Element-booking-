@@ -7,21 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { X, Loader2, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocationHours, buildHourChoices, toMinutes } from "@/config/hours";
-
-const BAY_NAME_MAP = {
-  "East 1": "Bay 1",
-  "East 2": "Bay 2",
-  "West 1": "Bay 3",
-  "West 2": "Bay 4",
-  "West 3": "Bay 5",
-  "South 1": "Bay 6",
-  "South 2": "Bay 7",
-  "North 1": "Bay 8",
-  "North 2": "Bay 9",
-  "VIP 1": "VIP 1",
-  "VIP 2": "VIP 2"
-};
-const getBayDisplayName = (name) => BAY_NAME_MAP[name] || name;
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const prettyDate = (d) => {
   // block_date is a "yyyy-MM-dd" string; parse as local, not UTC.
@@ -46,7 +32,7 @@ export default function EditBlockModal({ block, simulators = [], location, onClo
   const [error, setError] = useState("");
 
   const bay = simulators.find((s) => s.id === block.simulator_id);
-  const bayName = getBayDisplayName(bay?.name || block.simulator_name || "Bay");
+  const bayName = getBayDisplayName(bay?.name || block.simulator_name || "Bay", location);
 
   const save = async () => {
     setError("");

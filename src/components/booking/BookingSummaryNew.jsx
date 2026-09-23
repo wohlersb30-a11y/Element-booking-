@@ -5,6 +5,7 @@ import { Calendar, Clock, DollarSign, MapPin, Users, MessageSquare, CreditCard }
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { computeTax } from "@/config/tax";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const formatTime = (time24) => {
   if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
@@ -25,23 +26,6 @@ const calculateEndTime = (startTime, duration) => {
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 };
 
-// Map old bay names to new display names
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 export default function BookingSummaryNew({ 
   selectedBays,
@@ -80,7 +64,7 @@ export default function BookingSummaryNew({
               {selectedBays.map((bayInfo) => (
                 <div key={bayInfo.bay.id} className="flex justify-between items-center gap-2">
                   <p className="font-semibold text-sm sm:text-base truncate">
-                    {getBayDisplayName(bayInfo.bay.name)}
+                    {getBayDisplayName(bayInfo.bay.name, bayInfo.bay.location)}
                   </p>
                   <span className="text-sm opacity-90 flex-shrink-0">× {bayInfo.quantity}</span>
                 </div>
@@ -143,7 +127,7 @@ export default function BookingSummaryNew({
           {selectedBays.map((bayInfo) => (
             <div key={bayInfo.bay.id} className="flex justify-between text-sm gap-2">
               <span className="opacity-80 truncate">
-                {getBayDisplayName(bayInfo.bay.name)} × {bayInfo.quantity}
+                {getBayDisplayName(bayInfo.bay.name, bayInfo.bay.location)} × {bayInfo.quantity}
               </span>
               <span className="flex-shrink-0">${(bayInfo.totalCost * bayInfo.quantity).toFixed(2)}</span>
             </div>

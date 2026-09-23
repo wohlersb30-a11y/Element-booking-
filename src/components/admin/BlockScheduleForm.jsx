@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { X, Loader2, AlertTriangle } from "lucide-react";
 import { format, eachDayOfInterval } from "date-fns";
 import { useLocationHours, buildHourChoices } from "@/config/hours";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const toMinutes = (t) => {
   if (!t || typeof t !== "string" || !t.includes(":")) return NaN;
@@ -28,22 +29,6 @@ const prettyTime = (t) => {
   return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 };
 
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 export default function BlockScheduleForm({ simulators, onClose, onComplete, initialDate, location }) {
   // Block times follow the location's operating hours so a "full day" block
@@ -352,7 +337,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
                   checked={selectedBayIds.includes(bay.id)}
                   onCheckedChange={() => toggleBay(bay.id)}
                 />
-                <span className="text-sm text-slate-700">{getBayDisplayName(bay.name)}</span>
+                <span className="text-sm text-slate-700">{getBayDisplayName(bay.name, location)}</span>
               </label>
             ))}
           </div>
@@ -462,7 +447,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
             <ul className="text-sm text-amber-900 space-y-1 max-h-40 overflow-y-auto">
               {conflicts.map((c, i) => (
                 <li key={i} className="flex flex-wrap gap-x-2">
-                  <span className="font-medium">{getBayDisplayName(c.simulator_name)}</span>
+                  <span className="font-medium">{getBayDisplayName(c.simulator_name, location)}</span>
                   <span>·</span>
                   <span>{c.booking_date}</span>
                   <span>·</span>

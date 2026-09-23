@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import CheckInSystem from "./CheckInSystem";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocationHours, closeTimeForDate } from "@/config/hours";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const formatTime = (time24) => {
   if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
@@ -23,22 +24,6 @@ const formatTime = (time24) => {
   return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 };
 
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 const toMinutes = (t) => {
   if (!t) return 0;
@@ -208,7 +193,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
     });
 
     if (conflict) {
-      alert(`${getBayDisplayName(selectedNewBay.name)} is already booked for this time. Choose another bay.`);
+      alert(`${getBayDisplayName(selectedNewBay.name, selectedNewBay.location)} is already booked for this time. Choose another bay.`);
       return;
     }
 
@@ -218,7 +203,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
         simulator_id: selectedNewBay.id,
         simulator_name: selectedNewBay.name
       });
-      alert(`Reservation moved to ${getBayDisplayName(selectedNewBay.name)}.`);
+      alert(`Reservation moved to ${getBayDisplayName(selectedNewBay.name, selectedNewBay.location)}.`);
       onClose();
     } catch (error) {
       console.error("Error moving booking:", error);
@@ -317,7 +302,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-slate-700">
                 <MapPin className="w-5 h-5 text-[#2d5567]" />
-                <span className="font-medium">{getBayDisplayName(booking.simulator_name)}</span>
+                <span className="font-medium">{getBayDisplayName(booking.simulator_name, booking.location)}</span>
               </div>
               <div className="flex items-center gap-3 text-slate-700">
                 <Calendar className="w-5 h-5 text-[#2d5567]" />
@@ -347,7 +332,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                     <SelectContent>
                       {moveableBays.map((bay) => (
                         <SelectItem key={bay.id} value={bay.id}>
-                          {getBayDisplayName(bay.name)}{isVIPBay(bay) ? " - VIP" : ""}
+                          {getBayDisplayName(bay.name, bay.location)}{isVIPBay(bay) ? " - VIP" : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>

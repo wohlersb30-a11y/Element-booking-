@@ -24,6 +24,7 @@ import BookingSummaryNew from "../components/booking/BookingSummaryNew";
 import LocationSelector from "../components/booking/LocationSelector";
 import WaitlistForm from "../components/booking/WaitlistForm";
 import SpecialsModal from "../components/booking/SpecialsModal";
+import { getBayBaseName } from "@/lib/bayNames";
 
 const calculateRate = (date, startTime, bayType, simulator) => {
   const bookingDate = new Date(date);
@@ -185,31 +186,14 @@ const formatTimeLabel = (hhmm) => {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
 };
 
-// Maps the raw DB bay names to the customer-facing "Bay N" labels so that
-// ordering follows what the customer actually sees (Bay 1..9), not the raw
-// East/West/South/North suffix numbers. Keep in sync with AvailableBayCard.
-const BAY_DISPLAY_MAP = {
-  "East 1": "Bay 1",
-  "East 2": "Bay 2",
-  "West 1": "Bay 3",
-  "West 2": "Bay 4",
-  "West 3": "Bay 5",
-  "South 1": "Bay 6",
-  "South 2": "Bay 7",
-  "North 1": "Bay 8",
-  "North 2": "Bay 9",
-  "VIP 1": "VIP 1",
-  "VIP 2": "VIP 2"
-};
-const getBayDisplayName = (name) => BAY_DISPLAY_MAP[name] || name || "";
-
 // Treat anything flagged vip OR named "VIP ..." as a VIP bay.
 const isVIPBay = (bay) => bay.bay_type === "vip" || /vip/i.test(bay.name || "");
 
-// Sort key: standard bays before VIP, then by the number in the DISPLAY name
-// (so the customer sees Bay 1, Bay 2, ... Bay 9 in order, then VIP 1, VIP 2).
+// Sort key: standard bays before VIP, then by the number in the canonical
+// "Bay N" base name (location-agnostic) so the order stays stable regardless of
+// any per-location relabeling (e.g. Vadnais showing North/East/South/West).
 const bayOrder = (bay) => {
-  const match = getBayDisplayName(bay.name).match(/\d+/);
+  const match = getBayBaseName(bay.name).match(/\d+/);
   return { isVIP: isVIPBay(bay), num: match ? parseInt(match[0], 10) : 9999 };
 };
 

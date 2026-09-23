@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/lib/supabaseClient";
+import { getBayDisplayName } from "@/lib/bayNames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,33 +10,6 @@ import { X, Loader2, DollarSign, Plus, Trash2, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "Bay 1": "Bay 1",
-    "Bay 2": "Bay 2",
-    "Bay 3": "Bay 3",
-    "Bay 4": "Bay 4",
-    "Bay 5": "Bay 5",
-    "Bay 6": "Bay 6",
-    "Bay 7": "Bay 7",
-    "Bay 8": "Bay 8",
-    "Bay 9": "Bay 9",
-    "Bay 10": "Bay 10",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
 
 // Parse a 'yyyy-MM-dd' string into a Date at LOCAL midnight (avoids the
 // UTC-shift that `new Date('2026-12-25')` would introduce).
@@ -506,7 +480,7 @@ export default function PricingManager({ simulators, onClose, onComplete }) {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {sortedSimulators.map(bay => (
                 <div key={bay.id} className="p-3 bg-slate-50 rounded-lg">
-                  <p className="font-semibold text-sm">{getBayDisplayName(bay.name)}</p>
+                  <p className="font-semibold text-sm">{getBayDisplayName(bay.name, bay.location)}</p>
                   <p className="text-xs text-slate-600">{bay.bay_type === "vip" ? "VIP" : "Regular"}</p>
                 </div>
               ))}

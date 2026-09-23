@@ -1,4 +1,5 @@
 import { SendEmail } from "@/integrations/Core";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 // Customer-facing business details. Keep in sync with the edge-function copy in
 // supabase/functions/_shared/locations.ts.
@@ -34,23 +35,6 @@ const formatTime = (time24) => {
   return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 };
 
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
-
 export async function sendBookingConfirmation(bookingData) {
   const {
     customer_name,
@@ -68,7 +52,7 @@ export async function sendBookingConfirmation(bookingData) {
   } = bookingData;
 
   const loc = locationInfo(location);
-  const bayDisplayName = getBayDisplayName(simulator_name);
+  const bayDisplayName = getBayDisplayName(simulator_name, location);
   // Parse the yyyy-MM-dd booking date as LOCAL time. `new Date("2026-09-18")`
   // is interpreted as UTC midnight, which renders as the PREVIOUS day in US
   // time zones — that's why confirmations were showing yesterday's date.

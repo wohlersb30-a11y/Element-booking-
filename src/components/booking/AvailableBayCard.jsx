@@ -4,23 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Crown, Sparkles, Check, Clock } from "lucide-react";
 import { motion } from "framer-motion";
-
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
-};
+import { getBayDisplayName } from "@/lib/bayNames";
 
 export default function AvailableBayCard({
   bay,
@@ -34,7 +18,7 @@ export default function AvailableBayCard({
 }) {
   const isVIP = bay.bay_type === "vip";
   const durationText = duration === 1 ? "1 hour" : `${duration} hours`;
-  const displayName = getBayDisplayName(bay.name);
+  const displayName = getBayDisplayName(bay.name, bay.location);
 
   return (
     <motion.div

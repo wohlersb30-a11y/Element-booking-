@@ -5,6 +5,7 @@ import { Users, Lock, Crown, Tag } from "lucide-react";
 import { Booking } from "@/entities/Booking";
 import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
 import { useLocationHours, toMinutes, closeTimeForDate } from "@/config/hours";
+import { getBayDisplayName } from "@/lib/bayNames";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,33 +41,6 @@ const formatTimeTo12Hour = (time24) => {
   const hours12 = hours % 12 || 12;
   const minStr = minutes > 0 ? `:${minutes.toString().padStart(2, '0')}` : '';
   return `${hours12}${minStr}${period}`;
-};
-
-const getBayDisplayName = (originalName) => {
-  const nameMap = {
-    "East 1": "Bay 1",
-    "East 2": "Bay 2",
-    "West 1": "Bay 3",
-    "West 2": "Bay 4",
-    "West 3": "Bay 5",
-    "South 1": "Bay 6",
-    "South 2": "Bay 7",
-    "North 1": "Bay 8",
-    "North 2": "Bay 9",
-    "Bay 1": "Bay 1",
-    "Bay 2": "Bay 2",
-    "Bay 3": "Bay 3",
-    "Bay 4": "Bay 4",
-    "Bay 5": "Bay 5",
-    "Bay 6": "Bay 6",
-    "Bay 7": "Bay 7",
-    "Bay 8": "Bay 8",
-    "Bay 9": "Bay 9",
-    "Bay 10": "Bay 10",
-    "VIP 1": "VIP 1",
-    "VIP 2": "VIP 2"
-  };
-  return nameMap[originalName] || originalName;
 };
 
 const getBaySortOrder = (originalName) => {
@@ -523,7 +497,7 @@ export default function DailyScheduleView({
                       <tr key={bay.id}>
                         <td className="sticky left-0 z-10 p-2 font-medium text-xs border-r border-b bg-white">
                           <div className="flex items-center justify-between">
-                            <span>{getBayDisplayName(bay.name)}</span>
+                            <span>{getBayDisplayName(bay.name, bay.location)}</span>
                             {bay.bay_type === "vip" && (
                               <Badge className="bg-amber-100 text-amber-800 text-[9px] px-1">VIP</Badge>
                             )}
@@ -706,7 +680,7 @@ export default function DailyScheduleView({
             backgroundColor: dragUI.valid ? '#059669' : '#dc2626'
           }}
         >
-          {getBayDisplayName(dragUI.curBayName || '')} · {formatTimeTo12Hour(dragUI.curStart)}–{formatTimeTo12Hour(dragUI.curEnd)}
+          {getBayDisplayName(dragUI.curBayName || '', scheduleLocation)} · {formatTimeTo12Hour(dragUI.curStart)}–{formatTimeTo12Hour(dragUI.curEnd)}
           {!dragUI.valid && (
             <div className="text-[10px] font-normal opacity-90">Unavailable here</div>
           )}
@@ -721,7 +695,7 @@ export default function DailyScheduleView({
               {pendingMove && (
                 <>
                   Are you sure you want to move this reservation to{" "}
-                  <strong>{getBayDisplayName(pendingMove.newBayName)}</strong> at{" "}
+                  <strong>{getBayDisplayName(pendingMove.newBayName, scheduleLocation)}</strong> at{" "}
                   <strong>{formatTimeTo12Hour(pendingMove.newStartTime)}</strong>?
                 </>
               )}
