@@ -60,8 +60,25 @@ export default function SpecialsModal({
   const [selectedSpecial, setSelectedSpecial] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
+  const [selectedHours, setSelectedHours] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Pricing mode: 'hourly' specials let the customer pick how many hours
+  // (bounded by min_hours..max_hours) and bill price_per_hour * chosen hours.
+  // 'flat' specials keep the fixed price + fixed duration_hours (legacy behavior).
+  const isHourly = selectedSpecial?.pricing_mode === "hourly";
+  const minHours = Number(selectedSpecial?.min_hours) || 1;
+  const maxHours = Number(selectedSpecial?.max_hours) || 4;
+  const hourChoices = useMemo(() => {
+    const out = [];
+    for (let h = minHours; h <= maxHours; h++) out.push(h);
+    return out.length ? out : [1];
+  }, [minHours, maxHours]);
+  const effectiveDuration = isHourly ? selectedHours : Number(selectedSpecial?.duration_hours) || 1;
+  const effectivePrice = isHourly
+    ? (Number(selectedSpecial?.price_per_hour) || 0) * selectedHours
+    : Number(selectedSpecial?.price) || 0;
 
   // Time slots constrained to the special's allowed start-time window.
   const availableTimes = useMemo(() => {
@@ -84,6 +101,7 @@ export default function SpecialsModal({
     setSelectedSpecial(special);
     setSelectedDate(null);
     setSelectedTime(null);
+    setSelectedHours(Number(special?.min_hours) || 1);
     setError("");
   };
 
@@ -98,7 +116,8 @@ export default function SpecialsModal({
       return;
     }
 
-    const duration = Number(selectedSpecial.duration_hours) || 1;
+    const duration = effectiveDuration;
+    const amount = effectivePrice;
     const formattedDate = format(selectedDate, "yyyy-MM-dd");
     const endTime = calculateEndTime(selectedTime, duration);
 
@@ -117,7 +136,7 @@ export default function SpecialsModal({
     try {
       const appDomain = window.location.origin;
       const result = await base44.functions.invoke("createStripeCheckout", {
-        amount: Number(selectedSpecial.price) || 0,
+        amount,
         customerEmail,
         customerName,
         bookingData: {
@@ -125,7 +144,7 @@ export default function SpecialsModal({
             {
               bayId: openBay.id,
               bayName: openBay.name,
-              cost: Number(selectedSpecial.price) || 0
+              cost: amount
             }
           ],
           location,
@@ -137,9 +156,9 @@ export default function SpecialsModal({
           endTime,
           duration,
           playerCount: 1,
-          notes: `Special: ${selectedSpecial.title}${selectedSpecial.includes ? ` — Includes: ${selectedSpecial.includes}` : ""}`,
+          notes: `Special: ${selectedSpecial.title}${isHourly ? ` (${duration} hr @ $${(Number(selectedSpecial.price_per_hour) || 0).toFixed(2)}/hr)` : ""}${selectedSpecial.includes ? ` — Includes: ${selectedSpecial.includes}` : ""}`,
           specialId: selectedSpecial.id,
-          totalCost: Number(selectedSpecial.price) || 0
+          totalCost: amount
         },
         successUrl: `${appDomain}/PaymentSuccess?session_id={CHECKOUT_SESSION_ID}`,
         cancelUrl: `${appDomain}/BookSimulator`
@@ -147,7 +166,7 @@ export default function SpecialsModal({
 
       if (result.data && result.data.url) {
         trackInitiateCheckout({
-          value: computeTax(Number(selectedSpecial.price) || 0, location).total,
+          value: computeTax(amount, location).total,
           contentType: "booking",
           numItems: 1
         });
@@ -223,7 +242,9 @@ export default function SpecialsModal({
                             <div className="flex items-center gap-3 mt-3 text-sm text-slate-500">
                               <span className="flex items-center gap-1">
                                 <Clock className="w-4 h-4" />
-                                {special.duration_hours} hr
+                                {special.pricing_mode === "hourly"
+                                  ? `${Number(special.min_hours) || 1}–${Number(special.max_hours) || 4} hr`
+                                  : `${special.duration_hours} hr`}
                               </span>
                               <span>
                                 {formatTimeLabel(special.window_start || "09:00")}–
@@ -233,7 +254,12 @@ export default function SpecialsModal({
                           </div>
                           <div className="text-right flex-shrink-0">
                             <div className="text-3xl font-black text-amber-600">
-                              ${Number(special.price).toFixed(0)}
+                              ${Number(
+                                special.pricing_mode === "hourly" ? special.price_per_hour : special.price
+                              ).toFixed(0)}
+                              {special.pricing_mode === "hourly" && (
+                                <span className="text-base font-bold">/hr</span>
+                              )}
                             </div>
                             <Button size="sm" className="mt-2 bg-amber-500 hover:bg-amber-600">
                               Claim
@@ -265,15 +291,38 @@ export default function SpecialsModal({
                   <div>
                     <h3 className="font-bold text-slate-800">{selectedSpecial.title}</h3>
                     <p className="text-sm text-slate-600">
-                      {selectedSpecial.duration_hours} hr
+                      {isHourly
+                        ? `${effectiveDuration} hr @ $${(Number(selectedSpecial.price_per_hour) || 0).toFixed(0)}/hr`
+                        : `${selectedSpecial.duration_hours} hr`}
                       {selectedSpecial.includes ? ` • ${selectedSpecial.includes}` : ""}
                     </p>
                   </div>
                   <div className="text-2xl font-black text-amber-600">
-                    ${Number(selectedSpecial.price).toFixed(0)}
+                    ${effectivePrice.toFixed(0)}
                   </div>
                 </CardContent>
               </Card>
+
+              {isHourly && (
+                <div className="space-y-3">
+                  <Label className="text-base font-bold text-slate-700">How many hours?</Label>
+                  <Select
+                    value={String(selectedHours)}
+                    onValueChange={(v) => setSelectedHours(Number(v))}
+                  >
+                    <SelectTrigger className="h-14 text-base rounded-xl border-2 border-slate-200">
+                      <SelectValue placeholder="Choose hours" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {hourChoices.map((h) => (
+                        <SelectItem key={h} value={String(h)} className="text-base py-3">
+                          {h} {h === 1 ? "hour" : "hours"} — ${((Number(selectedSpecial.price_per_hour) || 0) * h).toFixed(0)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <Label className="text-base font-bold text-slate-700">Select Date</Label>

@@ -35,12 +35,18 @@ const formatTimeLabel = (value) => {
 const locationLabel = (loc) =>
   loc === "vadnais_heights" ? "Vadnais Heights" : loc === "burnsville" ? "Burnsville" : "Both Locations";
 
+const HOUR_CHOICES = [1, 2, 3, 4, 5, 6];
+
 const emptyForm = {
   title: "",
   description: "",
   includes: "",
   location: "vadnais_heights",
+  pricing_mode: "flat", // 'flat' | 'hourly'
   price: "",
+  price_per_hour: "",
+  min_hours: 1,
+  max_hours: 4,
   duration_hours: 1,
   days_of_week: [],
   window_start: "09:00",
@@ -86,7 +92,11 @@ export default function SpecialsManager({ defaultLocation = "vadnais_heights", o
       description: special.description || "",
       includes: special.includes || "",
       location: special.location || "vadnais_heights",
+      pricing_mode: special.pricing_mode === "hourly" ? "hourly" : "flat",
       price: special.price ?? "",
+      price_per_hour: special.price_per_hour ?? "",
+      min_hours: special.min_hours ?? 1,
+      max_hours: special.max_hours ?? 4,
       duration_hours: special.duration_hours ?? 1,
       days_of_week: special.days_of_week || [],
       window_start: special.window_start || "09:00",
@@ -113,6 +123,22 @@ export default function SpecialsManager({ defaultLocation = "vadnais_heights", o
       alert("Please enter a title for the special.");
       return;
     }
+    const isHourly = form.pricing_mode === "hourly";
+    if (isHourly && !(Number(form.price_per_hour) > 0)) {
+      alert("Please enter a per-hour price for this special.");
+      return;
+    }
+    if (!isHourly && !(Number(form.price) >= 0)) {
+      alert("Please enter a price for this special.");
+      return;
+    }
+    const minH = Number(form.min_hours) || 1;
+    const maxH = Number(form.max_hours) || minH;
+    if (isHourly && maxH < minH) {
+      alert("Max hours must be greater than or equal to min hours.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const payload = {
@@ -120,8 +146,15 @@ export default function SpecialsManager({ defaultLocation = "vadnais_heights", o
         description: form.description.trim() || null,
         includes: form.includes.trim() || null,
         location: form.location,
-        price: Number(form.price) || 0,
-        duration_hours: Number(form.duration_hours) || 1,
+        pricing_mode: isHourly ? "hourly" : "flat",
+        // Flat specials keep `price` + fixed `duration_hours`. Hourly specials use
+        // `price_per_hour` and let the customer pick hours (min_hours..max_hours);
+        // `price`/`duration_hours` are left at safe defaults for hourly.
+        price: isHourly ? 0 : Number(form.price) || 0,
+        price_per_hour: isHourly ? Number(form.price_per_hour) || 0 : null,
+        min_hours: isHourly ? minH : 1,
+        max_hours: isHourly ? maxH : 1,
+        duration_hours: isHourly ? minH : Number(form.duration_hours) || 1,
         days_of_week: form.days_of_week.length > 0 ? form.days_of_week : null,
         window_start: form.window_start,
         window_end: form.window_end,
@@ -237,39 +270,106 @@ export default function SpecialsManager({ defaultLocation = "vadnais_heights", o
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Price ($) *</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: e.target.value })}
-                placeholder="0.00"
-                className="h-12"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Duration</Label>
-              <Select
-                value={String(form.duration_hours)}
-                onValueChange={(v) => setForm({ ...form, duration_hours: Number(v) })}
-              >
+              <Label>Pricing *</Label>
+              <Select value={form.pricing_mode} onValueChange={(v) => setForm({ ...form, pricing_mode: v })}>
                 <SelectTrigger className="h-12">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DURATIONS.map((d) => (
-                    <SelectItem key={d} value={String(d)}>
-                      {d} hr
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="flat">Flat price</SelectItem>
+                  <SelectItem value="hourly">Per hour (customer picks hours)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {form.pricing_mode === "flat" ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Price ($) *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.price}
+                  onChange={(e) => setForm({ ...form, price: e.target.value })}
+                  placeholder="0.00"
+                  className="h-12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <Select
+                  value={String(form.duration_hours)}
+                  onValueChange={(v) => setForm({ ...form, duration_hours: Number(v) })}
+                >
+                  <SelectTrigger className="h-12">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DURATIONS.map((d) => (
+                      <SelectItem key={d} value={String(d)}>
+                        {d} hr
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Price per hour ($) *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.price_per_hour}
+                  onChange={(e) => setForm({ ...form, price_per_hour: e.target.value })}
+                  placeholder="0.00"
+                  className="h-12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Min hours</Label>
+                <Select
+                  value={String(form.min_hours)}
+                  onValueChange={(v) => setForm({ ...form, min_hours: Number(v) })}
+                >
+                  <SelectTrigger className="h-12">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HOUR_CHOICES.map((h) => (
+                      <SelectItem key={h} value={String(h)}>
+                        {h} hr
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Max hours</Label>
+                <Select
+                  value={String(form.max_hours)}
+                  onValueChange={(v) => setForm({ ...form, max_hours: Number(v) })}
+                >
+                  <SelectTrigger className="h-12">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HOUR_CHOICES.map((h) => (
+                      <SelectItem key={h} value={String(h)}>
+                        {h} hr
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Earliest Start</Label>
               <Select value={form.window_start} onValueChange={(v) => setForm({ ...form, window_start: v })}>
@@ -422,8 +522,21 @@ export default function SpecialsManager({ defaultLocation = "vadnais_heights", o
                       </p>
                     )}
                     <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 flex-wrap">
-                      <span className="font-bold text-amber-600 text-base">${Number(special.price).toFixed(2)}</span>
-                      <span>{special.duration_hours} hr</span>
+                      {special.pricing_mode === "hourly" ? (
+                        <>
+                          <span className="font-bold text-amber-600 text-base">
+                            ${Number(special.price_per_hour || 0).toFixed(2)}/hr
+                          </span>
+                          <span>
+                            {Number(special.min_hours) || 1}–{Number(special.max_hours) || 4} hr
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-bold text-amber-600 text-base">${Number(special.price).toFixed(2)}</span>
+                          <span>{special.duration_hours} hr</span>
+                        </>
+                      )}
                       <span>
                         {formatTimeLabel(special.window_start || "09:00")}–{formatTimeLabel(special.window_end || "22:00")}
                       </span>
