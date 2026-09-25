@@ -10,6 +10,7 @@ import { X, Sparkles, Loader2, CheckCircle2, Clock, Tag, AlertCircle, ChevronLef
 import { format } from "date-fns";
 import { computeTax } from "@/config/tax";
 import { trackInitiateCheckout } from "@/lib/metaPixel";
+import { getBayDisplayName } from "@/lib/bayNames";
 
 const ALL_TIME_SLOTS = [
   "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
@@ -61,6 +62,7 @@ export default function SpecialsModal({
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedHours, setSelectedHours] = useState(1);
+  const [selectedBayId, setSelectedBayId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -97,10 +99,34 @@ export default function SpecialsModal({
     return selectedSpecial.days_of_week.includes(date.getDay());
   };
 
+  // Bays at this location that are free for the chosen date/time/duration.
+  // This is the SAME overlap check the regular booking flow uses against the
+  // shared `bookings` table, so specials and regular bookings can never sit on
+  // the same bay/time. (The DB also enforces a no-overlap exclusion constraint
+  // as a final backstop.)
+  const availableBays = useMemo(() => {
+    if (!selectedDate || !selectedTime) return [];
+    const formattedDate = format(selectedDate, "yyyy-MM-dd");
+    return allBays
+      .filter((b) => b.location === location)
+      .filter((bay) =>
+        isBayAvailable(bay, formattedDate, selectedTime, effectiveDuration, allBookings)
+      );
+  }, [selectedDate, selectedTime, effectiveDuration, allBays, allBookings, location]);
+
+  // Drop the chosen bay if it is no longer in the available set (e.g. the
+  // customer changed the time or number of hours).
+  React.useEffect(() => {
+    if (selectedBayId && !availableBays.some((b) => b.id === selectedBayId)) {
+      setSelectedBayId(null);
+    }
+  }, [availableBays, selectedBayId]);
+
   const handleSelectSpecial = (special) => {
     setSelectedSpecial(special);
     setSelectedDate(null);
     setSelectedTime(null);
+    setSelectedBayId(null);
     setSelectedHours(Number(special?.min_hours) || 1);
     setError("");
   };
@@ -109,6 +135,10 @@ export default function SpecialsModal({
     setError("");
     if (!selectedDate || !selectedTime) {
       setError("Please choose a date and time for your special.");
+      return;
+    }
+    if (!selectedBayId) {
+      setError("Please choose an available bay.");
       return;
     }
     if (!customerName || !customerEmail || !customerPhone) {
@@ -121,14 +151,16 @@ export default function SpecialsModal({
     const formattedDate = format(selectedDate, "yyyy-MM-dd");
     const endTime = calculateEndTime(selectedTime, duration);
 
-    // Find the first open bay at this location for the chosen window.
-    const locationBays = allBays.filter((b) => b.location === location);
-    const openBay = locationBays.find((bay) =>
-      isBayAvailable(bay, formattedDate, selectedTime, duration, allBookings)
-    );
-
-    if (!openBay) {
-      setError("Sorry, no open bays at that time. Please pick another time or date.");
+    // Use the bay the customer chose, and re-check it is still free right before
+    // checkout (guards against another booking landing on it in the meantime).
+    const openBay = allBays.find((b) => b.id === selectedBayId);
+    if (
+      !openBay ||
+      openBay.location !== location ||
+      !isBayAvailable(openBay, formattedDate, selectedTime, duration, allBookings)
+    ) {
+      setError("Sorry, that bay was just taken. Please pick another bay or time.");
+      setSelectedBayId(null);
       return;
     }
 
@@ -365,9 +397,48 @@ export default function SpecialsModal({
                 </div>
               )}
 
+              {selectedDate && selectedTime && (
+                <div className="space-y-3">
+                  <Label className="text-base font-bold text-slate-700">Choose Your Bay</Label>
+                  {availableBays.length === 0 ? (
+                    <Alert className="bg-amber-50 border-amber-200">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-amber-800">
+                        No open bays for that time and duration. Please pick another time
+                        {isHourly ? ", fewer hours," : ""} or date.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {availableBays.map((bay) => {
+                        const active = selectedBayId === bay.id;
+                        return (
+                          <button
+                            key={bay.id}
+                            type="button"
+                            onClick={() => setSelectedBayId(bay.id)}
+                            className={`h-14 rounded-xl border-2 font-semibold text-sm transition-colors ${
+                              active
+                                ? "border-amber-500 bg-amber-500 text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-amber-300"
+                            }`}
+                          >
+                            {getBayDisplayName(bay.name, location)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    Only bays that are open for your selected time are shown, so specials
+                    never overlap with other bookings.
+                  </p>
+                </div>
+              )}
+
               <Button
                 onClick={handleClaim}
-                disabled={isSubmitting || !selectedDate || !selectedTime}
+                disabled={isSubmitting || !selectedDate || !selectedTime || !selectedBayId}
                 className="w-full h-14 text-lg font-bold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 rounded-xl"
               >
                 {isSubmitting ? (
