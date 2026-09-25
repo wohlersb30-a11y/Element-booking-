@@ -3,6 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -65,6 +66,14 @@ export default function SpecialsModal({
   const [selectedBayId, setSelectedBayId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Contact details. Seeded from the booking page if the customer already
+  // entered them there, but editable here so the specials flow is self-contained
+  // (the "View Specials" button sits above the main contact form, so these are
+  // usually empty when the modal opens).
+  const [contactName, setContactName] = useState(customerName || "");
+  const [contactEmail, setContactEmail] = useState(customerEmail || "");
+  const [contactPhone, setContactPhone] = useState(customerPhone || "");
 
   // Pricing mode: 'hourly' specials let the customer pick how many hours
   // (bounded by min_hours..max_hours) and bill price_per_hour * chosen hours.
@@ -141,8 +150,8 @@ export default function SpecialsModal({
       setError("Please choose an available bay.");
       return;
     }
-    if (!customerName || !customerEmail || !customerPhone) {
-      setError("Please fill in your name, email, and phone on the booking page first.");
+    if (!contactName.trim() || !contactEmail.trim() || !contactPhone.trim()) {
+      setError("Please enter your name, email, and phone below.");
       return;
     }
 
@@ -169,8 +178,8 @@ export default function SpecialsModal({
       const appDomain = window.location.origin;
       const result = await base44.functions.invoke("createStripeCheckout", {
         amount,
-        customerEmail,
-        customerName,
+        customerEmail: contactEmail.trim(),
+        customerName: contactName.trim(),
         bookingData: {
           selectedBays: [
             {
@@ -180,9 +189,9 @@ export default function SpecialsModal({
             }
           ],
           location,
-          customerName,
-          customerEmail,
-          customerPhone,
+          customerName: contactName.trim(),
+          customerEmail: contactEmail.trim(),
+          customerPhone: contactPhone.trim(),
           date: formattedDate,
           time: selectedTime,
           endTime,
@@ -208,7 +217,8 @@ export default function SpecialsModal({
           window.location.href = result.data.url;
         }
       } else {
-        setError("Failed to start checkout. Please try again.");
+        const serverErr = result?.data?.error || result?.error?.message || result?.error;
+        setError(serverErr ? `Could not start checkout: ${serverErr}` : "Failed to start checkout. Please try again.");
         setIsSubmitting(false);
       }
     } catch (e) {
@@ -434,6 +444,41 @@ export default function SpecialsModal({
                     never overlap with other bookings.
                   </p>
                 </div>
+              )}
+
+              {selectedBayId && (
+                <div className="space-y-3">
+                  <Label className="text-base font-bold text-slate-700">Your Details</Label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Input
+                      placeholder="Full name"
+                      value={contactName}
+                      onChange={(e) => setContactName(e.target.value)}
+                      className="h-12 rounded-xl border-2 border-slate-200"
+                    />
+                    <Input
+                      type="email"
+                      placeholder="Email"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      className="h-12 rounded-xl border-2 border-slate-200"
+                    />
+                    <Input
+                      type="tel"
+                      placeholder="Phone"
+                      value={contactPhone}
+                      onChange={(e) => setContactPhone(e.target.value)}
+                      className="h-12 rounded-xl border-2 border-slate-200"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {error && (
+                <Alert className="bg-red-50 border-red-200">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-800">{error}</AlertDescription>
+                </Alert>
               )}
 
               <Button
