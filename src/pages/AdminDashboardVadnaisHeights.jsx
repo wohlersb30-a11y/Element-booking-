@@ -310,7 +310,7 @@ export default function AdminDashboardVadnaisHeights() {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="h-10 px-4">
                     <Calendar className="w-4 h-4 mr-2" />
-                    {format(selectedDate, "MMM d, yyyy")}
+                    {format(selectedDate, "EEE, MMM d, yyyy")}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="center">
