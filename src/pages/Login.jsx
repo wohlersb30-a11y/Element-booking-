@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/SupabaseAuthContext';
+import { sessionPersists } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -134,6 +135,17 @@ export default function Login() {
           </p>
         </CardHeader>
         <CardContent className="p-6">
+          {!sessionPersists && (
+            <Alert className="mb-4 border-amber-300 bg-amber-50">
+              <AlertDescription className="text-amber-800 text-sm">
+                Your browser is blocking site data, so we may not be able to keep you
+                signed in. If booking doesn’t work, please open{' '}
+                <strong>book.elementindoorgolf.com</strong> directly in your browser
+                (not inside another app or page), turn off Private Browsing, and allow
+                cookies/site data for this site.
+              </AlertDescription>
+            </Alert>
+          )}
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertDescription>{error}</AlertDescription>

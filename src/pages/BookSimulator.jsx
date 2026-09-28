@@ -599,17 +599,36 @@ export default function BookSimulator() {
           contentType: "booking",
           numItems: selectedBays.length
         });
-        // Use window.top to break out of iframe
-        if (window.top) {
-          window.top.location.href = result.data.url;
-        } else {
-          window.location.href = result.data.url;
+        // Redirect to Stripe. Assigning window.top.location navigates the top
+        // frame even when the app is embedded in an iframe; fall back to this
+        // window if top isn't reachable.
+        const stripeUrl = result.data.url;
+        try {
+          if (window.top && window.top !== window.self) {
+            window.top.location.href = stripeUrl;
+          } else {
+            window.location.href = stripeUrl;
+          }
+        } catch {
+          // Cross-origin frame blocked the top navigation — go here instead.
+          window.location.href = stripeUrl;
         }
       } else {
-        alert("Failed to create checkout session. Please try again.");
+        // Surface the server's real reason. A dropped/expired login shows up as
+        // an auth error here — tell the customer to sign in again rather than
+        // leaving them with a generic failure (or a silent bounce to login).
+        const serverErr = result?.data?.error || result?.error?.message || "";
+        const isAuth = /unauthor|jwt|token|session|401/i.test(String(serverErr));
+        if (isAuth) {
+          alert(
+            "Your session expired. Please sign in again to finish your reservation — your selections are still here."
+          );
+        } else {
+          alert(serverErr ? `Could not start checkout: ${serverErr}` : "Failed to create checkout session. Please try again.");
+        }
         setIsSubmitting(false);
       }
-      
+
     } catch (error) {
       console.error("Stripe error:", error);
       alert("Error: " + (error.message || "Please try again"));

@@ -211,10 +211,15 @@ export default function SpecialsModal({
           contentType: "booking",
           numItems: 1
         });
-        if (window.top) {
-          window.top.location.href = result.data.url;
-        } else {
-          window.location.href = result.data.url;
+        const stripeUrl = result.data.url;
+        try {
+          if (window.top && window.top !== window.self) {
+            window.top.location.href = stripeUrl;
+          } else {
+            window.location.href = stripeUrl;
+          }
+        } catch {
+          window.location.href = stripeUrl;
         }
       } else {
         const serverErr = result?.data?.error || result?.error?.message || result?.error;
