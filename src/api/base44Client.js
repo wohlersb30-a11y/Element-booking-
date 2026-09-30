@@ -13,6 +13,9 @@ import { Special } from '@/entities/Special';
 import { HourTransaction } from '@/entities/HourTransaction';
 import { Customer } from '@/entities/Customer';
 import { TeeSheetClosure } from '@/entities/TeeSheetClosure';
+import { LessonSlot } from '@/entities/LessonSlot';
+import { LessonBooking } from '@/entities/LessonBooking';
+import { LessonCredit } from '@/entities/LessonCredit';
 import { User } from '@/entities/User';
 import { SendEmail } from '@/integrations/Core';
 
@@ -48,6 +51,9 @@ export const base44 = {
     HourTransaction,
     Customer,
     TeeSheetClosure,
+    LessonSlot,
+    LessonBooking,
+    LessonCredit,
     User
   },
   functions: { invoke },

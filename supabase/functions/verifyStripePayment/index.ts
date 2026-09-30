@@ -33,6 +33,7 @@ Deno.serve(async (req) => {
       alreadyProcessed: result.alreadyProcessed ?? false,
       kind: result.kind ?? 'regular',
       hourPackage: result.hourPackage ?? null,
+      lessonPurchase: result.lessonPurchase ?? null,
       // Authoritative conversion value for the Meta Pixel Purchase event.
       // amount_total is in the smallest currency unit (cents); convert to dollars.
       amountTotal:

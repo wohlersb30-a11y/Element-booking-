@@ -6,4 +6,7 @@ export { ScheduleBlock } from '@/entities/ScheduleBlock';
 export { Membership } from '@/entities/Membership';
 export { MemberBooking } from '@/entities/MemberBooking';
 export { Special } from '@/entities/Special';
+export { LessonSlot } from '@/entities/LessonSlot';
+export { LessonBooking } from '@/entities/LessonBooking';
+export { LessonCredit } from '@/entities/LessonCredit';
 export { User } from '@/entities/User';

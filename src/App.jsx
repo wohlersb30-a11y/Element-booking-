@@ -18,6 +18,8 @@ import MemberSignup from './pages/MemberSignup';
 import MemberBookings from './pages/MemberBookings';
 import BuyHours from './pages/BuyHours';
 import MyHours from './pages/MyHours';
+import Lessons from './pages/Lessons';
+import MyLessons from './pages/MyLessons';
 import AdminHours from './pages/AdminHours';
 import Customers from './pages/Customers';
 import Admin from './pages/Admin';
@@ -79,6 +81,8 @@ const AuthenticatedApp = () => {
       <Route path="/MemberBookings" element={<MemberBookings />} />
       <Route path="/BuyHours" element={<BuyHours />} />
       <Route path="/MyHours" element={<MyHours />} />
+      <Route path="/Lessons" element={<Lessons />} />
+      <Route path="/MyLessons" element={<MyLessons />} />
       <Route path="/AdminHours" element={<AdminRoute><AdminHours /></AdminRoute>} />
       <Route path="/Customers" element={<AdminRoute><Customers /></AdminRoute>} />
       <Route path="/Admin" element={<AdminRoute><Admin /></AdminRoute>} />

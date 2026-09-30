@@ -19,6 +19,7 @@ export default function PaymentSuccess() {
   const [message, setMessage] = useState("");
   const [isMember, setIsMember] = useState(false);
   const [isPackage, setIsPackage] = useState(false);
+  const [isLesson, setIsLesson] = useState(false);
 
   const addDebug = (msg) => {
     console.log(msg);
@@ -77,6 +78,23 @@ export default function PaymentSuccess() {
           );
           setTimeout(() => {
             navigate(createPageUrl("MyHours"));
+          }, 3000);
+          return;
+        }
+
+        // Lesson purchases grant lesson credits (a "bank") and schedule the
+        // first lesson — no bay booking / confirmation pipeline. Route to the
+        // customer's My Lessons page.
+        if (result.data.kind === "lesson") {
+          setIsLesson(true);
+          const lp = result.data.lessonPurchase;
+          setMessage(
+            lp?.booking
+              ? "Your first lesson is scheduled and any remaining lessons are in your account!"
+              : "Your lessons have been added to your account — schedule them anytime!"
+          );
+          setTimeout(() => {
+            navigate(createPageUrl("MyLessons"));
           }, 3000);
           return;
         }
@@ -148,15 +166,17 @@ export default function PaymentSuccess() {
                 <CheckCircle2 className="w-12 h-12 text-white" />
               </motion.div>
               <h2 className="text-3xl font-black text-white heading-font mb-1">
-                {isPackage ? "Hours Added! ⛳" : "You're Booked! 🏌️"}
+                {isLesson ? "Lessons Booked! 🏌️" : isPackage ? "Hours Added! ⛳" : "You're Booked! 🏌️"}
               </h2>
               <p className="text-blue-50">
-                {isPackage ? message : "Your bay is officially reserved."}
+                {isPackage || isLesson ? message : "Your bay is officially reserved."}
               </p>
             </div>
             <CardContent className="p-8 text-center">
               <p className="text-slate-600 mb-6">
-                {isPackage
+                {isLesson
+                  ? "Your lessons are ready. Head to My Lessons to see your first booking and schedule any remaining lessons from your account."
+                  : isPackage
                   ? "Your prepaid hours are ready to use. Book any bay and choose \"Use banked hours\" at checkout."
                   : isMember
                   ? "A card hold is in place at your member rate — no charge until you check in. See you on the tee!"
@@ -165,20 +185,20 @@ export default function PaymentSuccess() {
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Button
                   onClick={() =>
-                    navigate(createPageUrl(isPackage ? "MyHours" : isMember ? "MemberBookings" : "MyReservations"))
+                    navigate(createPageUrl(isLesson ? "MyLessons" : isPackage ? "MyHours" : isMember ? "MemberBookings" : "MyReservations"))
                   }
                   className="h-12 px-6 text-base font-bold bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#1e3a47] hover:to-[#0f1f29] rounded-xl"
                 >
-                  {isPackage ? "View My Hours" : isMember ? "Back to Member Portal" : "View My Reservations"}
+                  {isLesson ? "View My Lessons" : isPackage ? "View My Hours" : isMember ? "Back to Member Portal" : "View My Reservations"}
                 </Button>
                 <Button
                   onClick={() =>
-                    navigate(createPageUrl(isPackage ? "BookSimulator" : isMember ? "MemberBookings" : "BookSimulator"))
+                    navigate(createPageUrl(isLesson ? "Lessons" : isPackage ? "BookSimulator" : isMember ? "MemberBookings" : "BookSimulator"))
                   }
                   variant="outline"
                   className="h-12 px-6 text-base font-bold rounded-xl border-2"
                 >
-                  {isPackage ? "Book a Bay" : "Book Another"}
+                  {isLesson ? "Book More Lessons" : isPackage ? "Book a Bay" : "Book Another"}
                 </Button>
               </div>
             </CardContent>

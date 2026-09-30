@@ -5,7 +5,7 @@ import { base44 } from "@/api/base44Client";
 import { normalizeMemberBooking } from "@/lib/bookingCategories";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Plus, Loader2, Users, DollarSign, Ban, DollarSignIcon, BarChart3, Tag, Sparkles } from "lucide-react";
+import { Calendar, Plus, Loader2, Users, DollarSign, Ban, DollarSignIcon, BarChart3, Tag, Sparkles, GraduationCap } from "lucide-react";
 import { format, addDays, subDays } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -20,6 +20,7 @@ import BlockScheduleForm from "../components/admin/BlockScheduleForm";
 import EditBlockModal from "../components/admin/EditBlockModal";
 import PricingManager from "../components/admin/PricingManager";
 import SpecialsManager from "../components/admin/SpecialsManager";
+import LessonScheduleManager from "../components/admin/LessonScheduleManager";
 import SmartScheduleOptimizer from "../components/admin/SmartScheduleOptimizer";
 import LocationSwitcher from "../components/admin/LocationSwitcher";
 import CustomerLookup from "../components/admin/CustomerLookup";
@@ -40,6 +41,7 @@ export default function AdminDashboardVadnaisHeights() {
   const [editingBlock, setEditingBlock] = useState(null);
   const [showPricing, setShowPricing] = useState(false);
   const [showSpecials, setShowSpecials] = useState(false);
+  const [showLessons, setShowLessons] = useState(false);
   const [showOptimizer, setShowOptimizer] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [preselectedBay, setPreselectedBay] = useState(null);
@@ -260,6 +262,14 @@ export default function AdminDashboardVadnaisHeights() {
                   Specials
                 </Button>
                 <Button
+                  onClick={() => setShowLessons(true)}
+                  variant="outline"
+                  className="h-12 px-4 border-teal-300 text-teal-700 hover:bg-teal-50"
+                >
+                  <GraduationCap className="w-5 h-5 mr-2" />
+                  Lesson Schedule
+                </Button>
+                <Button
                   onClick={() => setShowOptimizer(true)}
                   variant="outline"
                   className="h-12 px-4 border-[#2d5567]/40 text-[#2d5567] hover:bg-[#2d5567]/10"
@@ -461,6 +471,17 @@ export default function AdminDashboardVadnaisHeights() {
               <SpecialsManager
                 defaultLocation="vadnais_heights"
                 onClose={() => setShowSpecials(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        {showLessons && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+              <LessonScheduleManager
+                defaultLocation="vadnais_heights"
+                onClose={() => setShowLessons(false)}
               />
             </div>
           </div>

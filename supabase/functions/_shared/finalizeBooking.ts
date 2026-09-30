@@ -2,6 +2,7 @@ import type Stripe from 'npm:stripe@14.11.0';
 import { serviceClient } from './clients.ts';
 import { applyDebitPlan } from './bankedHours.ts';
 import { sendEmail } from './email.ts';
+import { getLessonPackage } from './lessons.ts';
 
 const toMinutes = (t: string) => {
   const [h, m] = String(t).split(':').map(Number);
@@ -38,7 +39,14 @@ export async function readBookingData(
 }
 
 type FinalizeResult =
-  | { success: true; bookings: any[]; alreadyProcessed?: boolean; kind?: 'member' | 'regular' | 'package'; hourPackage?: any }
+  | {
+      success: true;
+      bookings: any[];
+      alreadyProcessed?: boolean;
+      kind?: 'member' | 'regular' | 'package' | 'lesson';
+      hourPackage?: any;
+      lessonPurchase?: any;
+    }
   | { success: false; conflict?: true; error: string };
 
 // Single source of truth for turning a completed Checkout Session into booking
@@ -71,6 +79,12 @@ export async function finalizeBookingFromSession(
   // Banked-hours package purchases credit the ledger instead of creating a booking.
   if ((session.metadata as Record<string, string>)?.booking_kind === 'package') {
     return finalizeHourPackage(session, db, paymentIntentId);
+  }
+
+  // Lesson purchases grant lesson credits (a "bank") and schedule the first
+  // lesson into the chosen slot. Immediate charge like packages.
+  if ((session.metadata as Record<string, string>)?.booking_kind === 'lesson') {
+    return finalizeLessonPurchase(session, db, paymentIntentId);
   }
 
   // VIP banked-hours booking: the surcharge hold succeeded — create the booking
@@ -338,6 +352,167 @@ async function finalizeHourPackage(
   }
 
   return { success: true, bookings: [], kind: 'package', hourPackage: created };
+}
+
+// Credit a completed lesson-package purchase to the customer's lesson bank and
+// schedule the FIRST lesson into the slot they chose at checkout. The full
+// package's worth of credits is granted; if a first slot was chosen and is still
+// open, one credit is immediately debited for it (net bank = credits - 1). If
+// the slot was taken in the meantime, all credits stay in the bank so the
+// customer can rebook — money is already charged (immediate payment), so we
+// never fail the purchase over a lost slot.
+//
+// Idempotent via the (stripe_payment_id, reason) unique index: a duplicate
+// success-page / webhook call hits the constraint and returns the existing rows.
+async function finalizeLessonPurchase(
+  session: Stripe.Checkout.Session,
+  db: ReturnType<typeof serviceClient>,
+  paymentIntentId: string
+): Promise<FinalizeResult> {
+  const m = (session.metadata || {}) as Record<string, string>;
+  const email = (m.customerEmail || session.customer_details?.email || '').toLowerCase();
+  const userId = m.customerId || null;
+  const location = m.location || null;
+  const pkg = getLessonPackage(m.package_id || '');
+  if (!pkg) return { success: false, error: 'Unknown lesson package.' };
+  const price = Number(m.price || pkg.price);
+  const slotId = m.slot_id || null;
+  const customerName = m.customer_name || session.customer_details?.name || '';
+  const customerPhone = m.customer_phone || '';
+
+  // Idempotency: already credited for this payment intent?
+  const { data: existingCredit } = await db
+    .from('lesson_credit_transactions')
+    .select('*')
+    .eq('stripe_payment_id', paymentIntentId)
+    .eq('reason', 'purchase');
+  if (existingCredit && existingCredit.length > 0) {
+    const { data: firstBooking } = await db
+      .from('lesson_bookings')
+      .select('*')
+      .eq('stripe_payment_id', paymentIntentId)
+      .limit(1);
+    return {
+      success: true,
+      bookings: firstBooking || [],
+      alreadyProcessed: true,
+      kind: 'lesson',
+      lessonPurchase: { credit: existingCredit[0], booking: firstBooking?.[0] || null, packageType: pkg.packageType }
+    };
+  }
+
+  // 1) Grant all of the package's credits.
+  const { data: credit, error: creditErr } = await db
+    .from('lesson_credit_transactions')
+    .insert({
+      user_email: email,
+      user_id: userId,
+      location,
+      delta: pkg.credits,
+      reason: 'purchase',
+      package_type: pkg.packageType,
+      amount_paid: price,
+      stripe_payment_id: paymentIntentId,
+      created_by: 'system',
+      note: `Purchased ${pkg.label}`
+    })
+    .select()
+    .single();
+  if (creditErr) {
+    // 23505 = unique_violation: a concurrent call already credited this PI.
+    if ((creditErr as any).code === '23505') {
+      const { data: now } = await db
+        .from('lesson_credit_transactions')
+        .select('*')
+        .eq('stripe_payment_id', paymentIntentId)
+        .eq('reason', 'purchase');
+      const { data: firstBooking } = await db
+        .from('lesson_bookings')
+        .select('*')
+        .eq('stripe_payment_id', paymentIntentId)
+        .limit(1);
+      if (now && now.length > 0) {
+        return {
+          success: true,
+          bookings: firstBooking || [],
+          alreadyProcessed: true,
+          kind: 'lesson',
+          lessonPurchase: { credit: now[0], booking: firstBooking?.[0] || null, packageType: pkg.packageType }
+        };
+      }
+    }
+    throw creditErr;
+  }
+
+  // 2) Schedule the first lesson into the chosen slot (best effort).
+  let firstBooking: any = null;
+  if (slotId) {
+    const { data: slot } = await db.from('lesson_slots').select('*').eq('id', slotId).single();
+    if (slot && slot.is_active) {
+      const { data: b, error: bErr } = await db
+        .from('lesson_bookings')
+        .insert({
+          slot_id: slot.id,
+          customer_id: userId,
+          customer_name: customerName,
+          customer_email: email,
+          customer_phone: customerPhone,
+          location: slot.location,
+          lesson_date: slot.lesson_date,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          duration_minutes: slot.duration_minutes,
+          booking_source: pkg.credits > 1 ? 'package' : 'single',
+          package_type: pkg.packageType,
+          amount_paid: price,
+          stripe_payment_id: paymentIntentId,
+          status: 'confirmed'
+        })
+        .select()
+        .single();
+      // On a lost-slot race (one-per-slot unique / 23505) we simply skip the
+      // first booking and leave every credit in the bank.
+      if (!bErr && b) {
+        firstBooking = b;
+        await db.from('lesson_credit_transactions').insert({
+          user_email: email,
+          user_id: userId,
+          location: slot.location,
+          delta: -1,
+          reason: 'booking',
+          package_type: pkg.packageType,
+          lesson_booking_id: b.id,
+          stripe_payment_id: paymentIntentId,
+          created_by: 'system',
+          note: `Scheduled first lesson ${slot.lesson_date} ${slot.start_time}`
+        });
+      }
+    }
+  }
+
+  await notifyOwnerNewBooking({
+    kind: 'lesson',
+    customerName,
+    customerEmail: email,
+    customerPhone,
+    location,
+    date: firstBooking?.lesson_date,
+    startTime: firstBooking?.start_time,
+    endTime: firstBooking?.end_time,
+    bays: [`${pkg.label} w/ Brandon Sigette`],
+    total: price,
+    paymentMethod: 'Credit card',
+    notes: firstBooking
+      ? `First lesson scheduled. Bank remaining: ${pkg.credits - 1}.`
+      : `No slot scheduled at checkout. ${pkg.credits} lesson credit(s) banked.`
+  });
+
+  return {
+    success: true,
+    bookings: firstBooking ? [firstBooking] : [],
+    kind: 'lesson',
+    lessonPurchase: { credit, booking: firstBooking, packageType: pkg.packageType }
+  };
 }
 
 // Finalize a VIP banked-hours booking after its surcharge hold is authorized:
