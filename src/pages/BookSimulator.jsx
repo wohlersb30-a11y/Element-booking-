@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle2, Loader2, AlertCircle, Sparkles, Shield, DollarSign, Tag, Clock, GraduationCap } from "lucide-react";
+import { CheckCircle2, Loader2, AlertCircle, Sparkles, Shield, DollarSign, Tag, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -776,22 +776,6 @@ export default function BookSimulator() {
                 >
                   <Tag className="w-6 h-6 mr-2" />
                   View Specials ({availableSpecials.length})
-                </Button>
-              </motion.div>
-            )}
-
-            {selectedLocation && !locationClosure && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <Button
-                  onClick={() => navigate("/Lessons")}
-                  variant="outline"
-                  className="w-full h-14 text-base font-bold border-2 border-[#2d5567] text-[#2d5567] hover:bg-[#2d5567]/10 rounded-xl"
-                >
-                  <GraduationCap className="w-5 h-5 mr-2" />
-                  Book a Lesson with Brandon
                 </Button>
               </motion.div>
             )}

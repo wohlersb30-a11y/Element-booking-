@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Building2, Trophy } from "lucide-react";
+import { MapPin, Building2, Trophy, GraduationCap } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function LocationSelector({ selectedLocation, onChange }) {
+  const navigate = useNavigate();
   // Per-location "League Sign Up" URLs, set by admins in the dashboard. Absence
   // (or a blank value) means no League Sign Up button is shown for that location.
   const [leagueUrls, setLeagueUrls] = useState({});
@@ -118,6 +120,14 @@ export default function LocationSelector({ selectedLocation, onChange }) {
             </motion.div>
           ))}
         </div>
+
+        <button
+          onClick={() => navigate("/Lessons")}
+          className="mt-4 w-full inline-flex items-center justify-center gap-2 h-12 px-4 rounded-xl font-bold text-white bg-gradient-to-r from-[#2d5567] to-[#1e3a47] hover:from-[#254757] hover:to-[#16303c] shadow-lg hover:shadow-xl transition-all duration-300 active:scale-95"
+        >
+          <GraduationCap className="w-5 h-5" />
+          Book a Lesson with Brandon
+        </button>
       </CardContent>
     </Card>
   );
