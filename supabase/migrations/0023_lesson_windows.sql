@@ -50,11 +50,26 @@ alter table public.lesson_bookings
 
 -- Half-open [start, end) time range for this lesson, derived from the stored
 -- date + 'HH:MM' strings. Used by the overlap exclusion constraint below.
+--
+-- A generated column's expression must be IMMUTABLE. The text->time cast
+-- (start_time::time) is only classified STABLE by Postgres, so we wrap the
+-- conversion in an explicitly-immutable helper. Parsing 'HH:MM' into a time of
+-- day does not depend on any session setting, so this is safe.
+create or replace function public.lesson_busy_range(p_date date, p_start text, p_end text)
+returns tsrange
+language sql
+immutable
+as $$
+  select tsrange(
+    p_date + p_start::time without time zone,
+    p_date + p_end::time without time zone,
+    '[)'
+  );
+$$;
+
 alter table public.lesson_bookings
   add column if not exists busy_range tsrange
-  generated always as (
-    tsrange(lesson_date + start_time::time, lesson_date + end_time::time, '[)')
-  ) stored;
+  generated always as (public.lesson_busy_range(lesson_date, start_time, end_time)) stored;
 
 -- btree_gist lets us mix text equality (location) with range overlap in one
 -- GiST exclusion constraint.
