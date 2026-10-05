@@ -29,6 +29,17 @@ const prettyTime = (t) => {
   return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 };
 
+// date-fns / JS getDay(): 0=Sunday … 6=Saturday.
+const WEEKDAYS = [
+  { value: 0, short: "Sun", label: "Sunday" },
+  { value: 1, short: "Mon", label: "Monday" },
+  { value: 2, short: "Tue", label: "Tuesday" },
+  { value: 3, short: "Wed", label: "Wednesday" },
+  { value: 4, short: "Thu", label: "Thursday" },
+  { value: 5, short: "Fri", label: "Friday" },
+  { value: 6, short: "Sat", label: "Saturday" }
+];
+
 
 export default function BlockScheduleForm({ simulators, onClose, onComplete, initialDate, location }) {
   // Block times follow the location's operating hours so a "full day" block
@@ -61,6 +72,11 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   // When true, every selected day is blocked open→close and the time pickers /
   // span-vs-daily choice no longer apply.
   const [fullDay, setFullDay] = useState(false);
+  // Recurring weekly: when on, only days whose weekday is in `repeatWeekdays`
+  // get a block, across the whole date range — e.g. every Thursday 7–11 PM for
+  // a league. The time window is the same on each occurrence (daily mode).
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
+  const [repeatWeekdays, setRepeatWeekdays] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Existing customer bookings that fall inside the requested block window.
   // When non-empty we pause and make the admin confirm before writing blocks.
@@ -88,12 +104,29 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
     );
   };
 
+  // Turning on weekly repeat seeds the weekday of the chosen start date, so the
+  // common case ("every Thursday") is one click.
+  const toggleRepeatWeekly = (checked) => {
+    const on = !!checked;
+    setRepeatWeekly(on);
+    if (on && repeatWeekdays.length === 0 && dateRange?.from) {
+      setRepeatWeekdays([dateRange.from.getDay()]);
+    }
+  };
+
+  const toggleWeekday = (value) => {
+    setRepeatWeekdays((prev) =>
+      prev.includes(value) ? prev.filter((x) => x !== value) : [...prev, value]
+    );
+  };
+
   const isMultiDay =
     !!dateRange?.from &&
     !!dateRange?.to &&
     format(dateRange.to, "yyyy-MM-dd") !== format(dateRange.from, "yyyy-MM-dd");
-  // Span mode only applies to a real multi-day range.
-  const effectiveMode = isMultiDay ? blockMode : "daily";
+  // Span mode only applies to a real multi-day range, and never to a recurring
+  // weekly block (each occurrence uses the same daily time window).
+  const effectiveMode = isMultiDay && !repeatWeekly ? blockMode : "daily";
 
   // Compute the block window (start/end time) for a given day index within the
   // range. In "daily" mode every day uses the same chosen window. In "span" mode
@@ -103,7 +136,7 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   const windowForDay = (index, lastIndex) => {
     // Whole-day block: every day runs open→close, regardless of mode.
     if (fullDay) return { start_time: OPEN_TIME, end_time: CLOSE_TIME };
-    if (blockMode === "daily" || lastIndex === 0) {
+    if (repeatWeekly || blockMode === "daily" || lastIndex === 0) {
       return { start_time: formData.start_time, end_time: formData.end_time };
     }
     if (index === 0) return { start_time: formData.start_time, end_time: CLOSE_TIME };
@@ -116,7 +149,11 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
     // end date is chosen.
     const start = dateRange.from;
     const end = dateRange.to || dateRange.from;
-    const days = eachDayOfInterval({ start, end });
+    let days = eachDayOfInterval({ start, end });
+    // Recurring weekly: keep only days matching a chosen weekday.
+    if (repeatWeekly) {
+      days = days.filter((day) => repeatWeekdays.includes(day.getDay()));
+    }
     const lastIndex = days.length - 1;
 
     const baysToBlock = simulators.filter((s) => selectedBayIds.includes(s.id));
@@ -213,7 +250,11 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
     try {
       const rows = buildRows();
       if (rows.length === 0) {
-        alert("Please select at least one bay and a date.");
+        alert(
+          repeatWeekly
+            ? "None of the selected weekdays fall within that date range. Widen the range or pick different days."
+            : "Please select at least one bay and a date."
+        );
         setIsSubmitting(false);
         return;
       }
@@ -248,7 +289,9 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
         <div className="space-y-2">
           <Label>Date(s) *</Label>
           <p className="text-xs text-slate-500">
-            Pick one day, or click a start and end date to block a range.
+            Pick one day, or click a start and end date to block a range. For a
+            recurring block (e.g. every Thursday), pick the first and last date
+            of the season, then turn on “Repeat weekly” below.
           </p>
           <div className="flex justify-center">
             <Calendar
@@ -263,7 +306,9 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           </div>
           {dateRange?.from && (
             <p className="text-sm text-center text-slate-600">
-              {isMultiDay
+              {repeatWeekly && dateRange?.to
+                ? `Repeating weekly between ${format(dateRange.from, "MMM d")} and ${format(dateRange.to, "MMM d, yyyy")}`
+                : isMultiDay
                 ? `Blocking ${format(dateRange.from, "MMM d")} – ${format(dateRange.to, "MMM d, yyyy")}`
                 : `Blocking ${format(dateRange.from, "MMM d, yyyy")}`}
             </p>
@@ -280,7 +325,50 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
           </span>
         </label>
 
-        {isMultiDay && !fullDay && (
+        <div className="rounded-xl border border-slate-200 p-3 space-y-3">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <Checkbox checked={repeatWeekly} onCheckedChange={toggleRepeatWeekly} />
+            <span>
+              <span className="block font-semibold text-slate-800">Repeat weekly</span>
+              <span className="block text-xs text-slate-500">
+                Block the same day(s) every week across the date range above —
+                e.g. every Thursday 7–11 PM for a league.
+              </span>
+            </span>
+          </label>
+          {repeatWeekly && (
+            <div className="space-y-2">
+              <Label>Repeat on *</Label>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAYS.map((d) => {
+                  const on = repeatWeekdays.includes(d.value);
+                  return (
+                    <button
+                      key={d.value}
+                      type="button"
+                      onClick={() => toggleWeekday(d.value)}
+                      className={`h-9 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                        on
+                          ? "border-[#2d5567] bg-[#2d5567] text-white"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      {d.short}
+                    </button>
+                  );
+                })}
+              </div>
+              {!dateRange?.to && (
+                <p className="text-xs text-amber-600">
+                  Pick an end date on the calendar above so the block knows how
+                  many weeks to repeat.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {isMultiDay && !fullDay && !repeatWeekly && (
           <div className="space-y-2">
             <Label>How should these days be blocked? *</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -505,7 +593,8 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
                 isSubmitting ||
                 selectedBayIds.length === 0 ||
                 !dateRange?.from ||
-                (!fullDay && (!formData.start_time || !formData.end_time))
+                (!fullDay && (!formData.start_time || !formData.end_time)) ||
+                (repeatWeekly && (repeatWeekdays.length === 0 || !dateRange?.to))
               }
               className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
             >
