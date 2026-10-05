@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
         await sendEmail({
           from_name: 'Element Bookings',
           to,
-          subject: `Lesson booked (from bank) — ${customerName || 'guest'} · ${loc} · ${lessonDate}`,
+          subject: `Assign a bay — lesson booked (from bank) · ${customerName || 'guest'} · ${loc} · ${lessonDate}`,
           body: `
             <div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;">
               <h2 style="color:#2d5567;margin:0 0 4px;">Lesson booked from bank</h2>

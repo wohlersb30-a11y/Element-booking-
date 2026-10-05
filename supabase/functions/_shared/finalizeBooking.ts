@@ -711,11 +711,19 @@ async function notifyOwnerNewBooking(summary: {
         </table>
       </div>`;
 
+    // A lesson that actually landed on a date/time still needs a bay assigned,
+    // so make that the headline. (A lesson with no scheduled time — all banked —
+    // has nothing to assign yet, so it keeps the normal subject.)
+    const needsBay = summary.kind === 'lesson' && !!summary.date;
+    const subject = needsBay
+      ? `Assign a bay — lesson booked · ${summary.customerName || 'guest'} · ${loc} · ${summary.date}`
+      : `New booking — ${summary.customerName || 'guest'} · ${loc} · ${summary.date ?? ''}`;
+
     for (const recipient of recipients) {
       const result = await sendEmail({
         from_name: 'Element Bookings',
         to: recipient,
-        subject: `New booking — ${summary.customerName || 'guest'} · ${loc} · ${summary.date ?? ''}`,
+        subject,
         body
       });
       if (result.error) console.error('Owner booking alert failed:', recipient, result.error);
