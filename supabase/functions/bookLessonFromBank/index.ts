@@ -101,9 +101,11 @@ Deno.serve(async (req) => {
     // Best-effort: ask the owner to assign a bay (so it's blocked for public
     // booking). Never let an email hiccup fail the booking.
     try {
-      const to = Deno.env.get('OWNER_NOTIFY_EMAIL') ?? 'bradley@elementindoorgolf.com';
-      if (to) {
-        const loc = LOCATION_LABEL[location] || location;
+      const owner = Deno.env.get('OWNER_NOTIFY_EMAIL') ?? 'bradley@elementindoorgolf.com';
+      const lessonTo = Deno.env.get('LESSON_NOTIFY_EMAIL') ?? 'lessons@sigettegolf.com';
+      const recipients = Array.from(new Set([owner, lessonTo].filter(Boolean) as string[]));
+      const loc = LOCATION_LABEL[location] || location;
+      for (const to of recipients) {
         await sendEmail({
           from_name: 'Element Bookings',
           to,

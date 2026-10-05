@@ -23,6 +23,7 @@ import MyLessons from './pages/MyLessons';
 import AdminHours from './pages/AdminHours';
 import Customers from './pages/Customers';
 import Admin from './pages/Admin';
+import LessonSchedulePro from './pages/LessonSchedulePro';
 // Add page imports here
 
 const Spinner = () => (
@@ -49,8 +50,26 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
+// Gate the lesson-pro page: full admins and the restricted lesson_pro role may
+// enter; everyone else is denied.
+const LessonProRoute = ({ children }) => {
+  const { isLoadingAuth, profileLoaded, isAdmin, isLessonPro } = useAuth();
+  if (isLoadingAuth || !profileLoaded) return <Spinner />;
+  if (!isAdmin && !isLessonPro) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="max-w-md text-center bg-white rounded-xl shadow p-8">
+          <h2 className="text-2xl font-bold text-red-600 mb-2">Access Denied</h2>
+          <p className="text-slate-600">You don't have access to this page.</p>
+        </div>
+      </div>
+    );
+  }
+  return children;
+};
+
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isAuthenticated } = useAuth();
+  const { isLoadingAuth, isAuthenticated, isLessonPro, isAdmin, profileLoaded } = useAuth();
 
   // Wait until the Supabase session has been resolved.
   if (isLoadingAuth) return <Spinner />;
@@ -63,6 +82,18 @@ const AuthenticatedApp = () => {
         <Route path="/Signup" element={<Signup />} />
         <Route path="/ResetPassword" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/Login" replace />} />
+      </Routes>
+    );
+  }
+
+  // Restricted lesson pro (Brandon): expose ONLY the lesson availability page.
+  // Everything else redirects there, so he can't operate the rest of the app.
+  // (A full admin keeps the normal app below.)
+  if (profileLoaded && isLessonPro && !isAdmin) {
+    return (
+      <Routes>
+        <Route path="/LessonSchedule" element={<LessonSchedulePro />} />
+        <Route path="*" element={<Navigate to="/LessonSchedule" replace />} />
       </Routes>
     );
   }
@@ -86,6 +117,7 @@ const AuthenticatedApp = () => {
       <Route path="/AdminHours" element={<AdminRoute><AdminHours /></AdminRoute>} />
       <Route path="/Customers" element={<AdminRoute><Customers /></AdminRoute>} />
       <Route path="/Admin" element={<AdminRoute><Admin /></AdminRoute>} />
+      <Route path="/LessonSchedule" element={<LessonProRoute><LessonSchedulePro /></LessonProRoute>} />
       <Route path="/ResetPassword" element={<ResetPassword />} />
       <Route path="/Login" element={<Navigate to="/" replace />} />
       <Route path="/Signup" element={<Navigate to="/" replace />} />

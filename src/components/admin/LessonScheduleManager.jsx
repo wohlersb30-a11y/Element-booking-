@@ -52,7 +52,7 @@ const emptyForm = {
   end_time: "16:00"
 };
 
-export default function LessonScheduleManager({ defaultLocation = "vadnais_heights", onClose }) {
+export default function LessonScheduleManager({ defaultLocation = "vadnais_heights", onClose, availabilityOnly = false }) {
   const [windows, setWindows] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [simulators, setSimulators] = useState([]);
@@ -65,19 +65,28 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [w, b, s] = await Promise.all([
-        LessonAvailability.filter({ location: defaultLocation }, "weekday"),
-        LessonBooking.filter({ location: defaultLocation }, "lesson_date"),
-        Simulator.filter({ location: defaultLocation }, "name")
-      ]);
-      setWindows(w || []);
-      setBookings(b || []);
-      setSimulators(s || []);
+      // Availability-only mode (the lesson pro's view) never touches bookings,
+      // bays, or blocks — it only reads/writes the weekly windows.
+      if (availabilityOnly) {
+        const w = await LessonAvailability.filter({ location: defaultLocation }, "weekday");
+        setWindows(w || []);
+        setBookings([]);
+        setSimulators([]);
+      } else {
+        const [w, b, s] = await Promise.all([
+          LessonAvailability.filter({ location: defaultLocation }, "weekday"),
+          LessonBooking.filter({ location: defaultLocation }, "lesson_date"),
+          Simulator.filter({ location: defaultLocation }, "name")
+        ]);
+        setWindows(w || []);
+        setBookings(b || []);
+        setSimulators(s || []);
+      }
     } catch (e) {
       console.error("Error loading lesson schedule:", e);
     }
     setIsLoading(false);
-  }, [defaultLocation]);
+  }, [defaultLocation, availabilityOnly]);
 
   useEffect(() => {
     load();
@@ -213,6 +222,7 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
       </p>
 
       {/* ---------- Booked lessons / bay assignment ---------- */}
+      {!availabilityOnly && (
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-bold text-slate-800">Booked Lessons</h3>
@@ -277,6 +287,7 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
           Assigning a bay blocks that bay for the public during the lesson. Change it anytime.
         </p>
       </div>
+      )}
 
       {/* ---------- Weekly availability ---------- */}
       <div className="flex items-center justify-between mb-2">

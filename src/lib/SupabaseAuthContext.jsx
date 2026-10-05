@@ -149,6 +149,8 @@ export const AuthProvider = ({ children }) => {
         isLoadingPublicSettings: false, // kept for API compatibility with App.jsx
         authError,
         isAdmin: user?.role === 'admin',
+        // Restricted role: Brandon can manage lesson availability only.
+        isLessonPro: user?.role === 'lesson_pro',
         profileLoaded,
         login,
         signup,

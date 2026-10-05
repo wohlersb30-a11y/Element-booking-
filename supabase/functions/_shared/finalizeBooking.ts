@@ -675,7 +675,12 @@ async function notifyOwnerNewBooking(summary: {
 }): Promise<void> {
   try {
     const to = Deno.env.get('OWNER_NOTIFY_EMAIL') ?? 'bradley@elementindoorgolf.com';
-    if (!to) return;
+    // Lesson bookings also notify Brandon's lessons inbox.
+    const lessonTo = Deno.env.get('LESSON_NOTIFY_EMAIL') ?? 'lessons@sigettegolf.com';
+    const recipients = Array.from(
+      new Set([to, summary.kind === 'lesson' ? lessonTo : null].filter(Boolean) as string[])
+    );
+    if (recipients.length === 0) return;
 
     const loc = prettyLocation(summary.location);
     const when = `${summary.date ?? ''} · ${prettyTime(summary.startTime)} – ${prettyTime(summary.endTime)}`;
@@ -706,13 +711,15 @@ async function notifyOwnerNewBooking(summary: {
         </table>
       </div>`;
 
-    const result = await sendEmail({
-      from_name: 'Element Bookings',
-      to,
-      subject: `New booking — ${summary.customerName || 'guest'} · ${loc} · ${summary.date ?? ''}`,
-      body
-    });
-    if (result.error) console.error('Owner booking alert failed:', result.error);
+    for (const recipient of recipients) {
+      const result = await sendEmail({
+        from_name: 'Element Bookings',
+        to: recipient,
+        subject: `New booking — ${summary.customerName || 'guest'} · ${loc} · ${summary.date ?? ''}`,
+        body
+      });
+      if (result.error) console.error('Owner booking alert failed:', recipient, result.error);
+    }
   } catch (err) {
     console.error('Owner booking alert threw:', (err as any).message);
   }
