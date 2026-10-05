@@ -14,6 +14,7 @@ import { HourTransaction } from '@/entities/HourTransaction';
 import { Customer } from '@/entities/Customer';
 import { TeeSheetClosure } from '@/entities/TeeSheetClosure';
 import { LessonSlot } from '@/entities/LessonSlot';
+import { LessonAvailability } from '@/entities/LessonAvailability';
 import { LessonBooking } from '@/entities/LessonBooking';
 import { LessonCredit } from '@/entities/LessonCredit';
 import { User } from '@/entities/User';
@@ -52,6 +53,7 @@ export const base44 = {
     Customer,
     TeeSheetClosure,
     LessonSlot,
+    LessonAvailability,
     LessonBooking,
     LessonCredit,
     User

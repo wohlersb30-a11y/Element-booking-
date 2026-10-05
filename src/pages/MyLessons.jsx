@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, GraduationCap, CalendarDays, Award, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, addDays } from "date-fns";
 import LessonSlotPicker from "@/components/lessons/LessonSlotPicker";
 
 const LOCATION_LABEL = { vadnais_heights: "Vadnais Heights", burnsville: "Burnsville" };
@@ -34,9 +34,9 @@ export default function MyLessons() {
 
   // Book-from-bank flow.
   const [bankLocation, setBankLocation] = useState(null);
-  const [slots, setSlots] = useState([]);
+  const [times, setTimes] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState("");
 
@@ -81,34 +81,38 @@ export default function MyLessons() {
 
   const openBankBooking = (loc) => {
     setError("");
-    setSelectedSlot(null);
+    setSelectedTime(null);
     setBankLocation(loc);
     setSlotsLoading(true);
+    const from = format(new Date(), "yyyy-MM-dd");
+    const to = format(addDays(new Date(), 45), "yyyy-MM-dd");
     supabase
-      .rpc("open_lesson_slots", { p_location: loc })
+      .rpc("open_lesson_times", { p_location: loc, p_from: from, p_to: to })
       .then(({ data, error: rpcErr }) => {
         if (rpcErr) {
-          console.error("open_lesson_slots failed:", rpcErr);
-          setSlots([]);
+          console.error("open_lesson_times failed:", rpcErr);
+          setTimes([]);
         } else {
-          setSlots(data || []);
+          setTimes(data || []);
         }
       })
       .finally(() => setSlotsLoading(false));
   };
 
   const confirmBankBooking = async () => {
-    if (!selectedSlot) return setError("Please pick a time.");
+    if (!selectedTime) return setError("Please pick a time.");
     setBooking(true);
     setError("");
     try {
       const res = await base44.functions.invoke("bookLessonFromBank", {
-        slotId: selectedSlot.id
+        location: bankLocation,
+        lessonDate: selectedTime.lesson_date,
+        startTime: selectedTime.start_time
       });
       const d = res.data || {};
       if (d.success) {
         setBankLocation(null);
-        setSelectedSlot(null);
+        setSelectedTime(null);
         setLoading(true);
         await load();
       } else {
@@ -177,12 +181,11 @@ export default function MyLessons() {
           </CardHeader>
           <CardContent className="space-y-3">
             <LessonSlotPicker
-              slots={slots}
-              bookings={[]}
+              times={times}
               location={bankLocation}
               loading={slotsLoading}
-              selectedSlotId={selectedSlot?.id}
-              onSelect={setSelectedSlot}
+              selected={selectedTime}
+              onSelect={setSelectedTime}
             />
             {error && (
               <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">
@@ -192,7 +195,7 @@ export default function MyLessons() {
             <div className="flex gap-3">
               <Button
                 onClick={confirmBankBooking}
-                disabled={booking || !selectedSlot}
+                disabled={booking || !selectedTime}
                 className="bg-gradient-to-r from-[#2d5567] to-[#1e3a47]"
               >
                 {booking ? (

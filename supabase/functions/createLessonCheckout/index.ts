@@ -1,7 +1,7 @@
 import { getUser, serviceClient } from '../_shared/clients.ts';
 import { json, preflight } from '../_shared/cors.ts';
 import { stripeForLocation } from '../_shared/stripe.ts';
-import { getLessonPackage } from '../_shared/lessons.ts';
+import { getLessonPackage, isLessonTimeOpen } from '../_shared/lessons.ts';
 import { computeTax } from '../_shared/tax.ts';
 
 // Sells a lessons package (single / 3-pack / 7-pack). Like banked-hours, this is
@@ -24,7 +24,8 @@ Deno.serve(async (req) => {
     const {
       packageId,
       location,
-      slotId,
+      lessonDate,
+      startTime,
       customerName,
       customerPhone,
       successUrl,
@@ -43,29 +44,19 @@ Deno.serve(async (req) => {
 
     const { rate, tax } = computeTax(pkg.price, location);
 
-    // If a first-lesson slot was chosen, validate it belongs to this location and
-    // is still open before sending the customer to pay. (finalizeBooking is the
-    // final authority via the one-per-slot unique index.)
-    let validatedSlotId: string | null = null;
-    if (slotId) {
+    // If a first-lesson time was chosen, validate it's still an open 60-minute
+    // start at this location before sending the customer to pay. (The overlap
+    // exclusion constraint is the final authority in finalizeBooking.)
+    let validatedDate: string | null = null;
+    let validatedStart: string | null = null;
+    if (lessonDate && startTime) {
       const db = serviceClient();
-      const { data: slot } = await db
-        .from('lesson_slots')
-        .select('*')
-        .eq('id', slotId)
-        .single();
-      if (!slot || !slot.is_active || slot.location !== location) {
+      const open = await isLessonTimeOpen(db, location, lessonDate, startTime);
+      if (!open) {
         return json({ error: 'That lesson time is no longer available. Please pick another.' }, { status: 409 });
       }
-      const { data: taken } = await db
-        .from('lesson_bookings')
-        .select('id')
-        .eq('slot_id', slotId)
-        .neq('status', 'cancelled');
-      if (taken && taken.length > 0) {
-        return json({ error: 'That lesson time was just booked. Please pick another.' }, { status: 409 });
-      }
-      validatedSlotId = slotId;
+      validatedDate = lessonDate;
+      validatedStart = startTime;
     }
 
     const desc =
@@ -114,7 +105,8 @@ Deno.serve(async (req) => {
         package_type: pkg.packageType,
         price: String(pkg.price),
         location,
-        slot_id: validatedSlotId ?? '',
+        lesson_date: validatedDate ?? '',
+        start_time: validatedStart ?? '',
         customerEmail: user.email,
         customerId: user.id,
         customer_name: (customerName || '').slice(0, 200),

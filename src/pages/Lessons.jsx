@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Check, GraduationCap, Award } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { format, addDays } from "date-fns";
 import { LESSON_PACKAGES, LESSON_PRO } from "@/config/lessons";
 import { computeTax } from "@/config/tax";
 import { trackInitiateCheckout } from "@/lib/metaPixel";
@@ -35,9 +36,9 @@ export default function Lessons() {
   const [user, setUser] = useState(null);
   const [location, setLocation] = useState("");
   const [packageId, setPackageId] = useState("single");
-  const [slots, setSlots] = useState([]);
+  const [times, setTimes] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,24 +56,26 @@ export default function Lessons() {
       .catch(() => setUser(null));
   }, []);
 
-  // Load open slots whenever the location changes.
+  // Load open lesson times (next 45 days) whenever the location changes.
   useEffect(() => {
-    setSelectedSlot(null);
+    setSelectedTime(null);
     if (!location) {
-      setSlots([]);
+      setTimes([]);
       return;
     }
     let cancelled = false;
     setSlotsLoading(true);
+    const from = format(new Date(), "yyyy-MM-dd");
+    const to = format(addDays(new Date(), 45), "yyyy-MM-dd");
     supabase
-      .rpc("open_lesson_slots", { p_location: location })
+      .rpc("open_lesson_times", { p_location: location, p_from: from, p_to: to })
       .then(({ data, error: rpcErr }) => {
         if (cancelled) return;
         if (rpcErr) {
-          console.error("open_lesson_slots failed:", rpcErr);
-          setSlots([]);
+          console.error("open_lesson_times failed:", rpcErr);
+          setTimes([]);
         } else {
-          setSlots(data || []);
+          setTimes(data || []);
         }
       })
       .finally(() => !cancelled && setSlotsLoading(false));
@@ -81,14 +84,14 @@ export default function Lessons() {
     };
   }, [location]);
 
-  const noOpenSlots = !slotsLoading && location && slots.length === 0;
+  const noOpenSlots = !slotsLoading && location && times.length === 0;
 
   const purchase = async () => {
     setError("");
     if (!location) return setError("Please choose a location first.");
     if (!name.trim()) return setError("Please enter your name.");
     if (!phone.trim()) return setError("Please enter a phone number so Brandon can reach you.");
-    if (!selectedSlot && !noOpenSlots) {
+    if (!selectedTime && !noOpenSlots) {
       return setError("Please pick a time for your first lesson.");
     }
 
@@ -98,7 +101,8 @@ export default function Lessons() {
       const res = await base44.functions.invoke("createLessonCheckout", {
         packageId: selectedPackage.id,
         location,
-        slotId: selectedSlot?.id || null,
+        lessonDate: selectedTime?.lesson_date || null,
+        startTime: selectedTime?.start_time || null,
         customerName: name.trim(),
         customerPhone: phone.trim(),
         successUrl: `${origin}${createPageUrl("PaymentSuccess")}?session_id={CHECKOUT_SESSION_ID}`,
@@ -247,14 +251,16 @@ export default function Lessons() {
                   be saved in your account to schedule anytime.
                 </p>
               )}
+              <p className="text-sm text-slate-500 mb-2">
+                Each lesson is 60 minutes. Times start every half hour.
+              </p>
               <div className="mt-2">
                 <LessonSlotPicker
-                  slots={slots}
-                  bookings={[]}
+                  times={times}
                   location={location}
                   loading={slotsLoading}
-                  selectedSlotId={selectedSlot?.id}
-                  onSelect={setSelectedSlot}
+                  selected={selectedTime}
+                  onSelect={setSelectedTime}
                 />
               </div>
               {noOpenSlots && (

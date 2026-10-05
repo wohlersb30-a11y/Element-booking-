@@ -91,6 +91,11 @@ const dateInRange = (viewDate, startStr, endStr) => {
   return d >= s && d <= e;
 };
 
+// A schedule block created for a lesson (admin assigns Brandon's bay) carries
+// reason "Lesson"; render it in its own indigo color, distinct from a plain
+// staff block.
+const isLessonBlock = (block) => String(block?.reason || "").trim().toLowerCase() === "lesson";
+
 const calculateEndTime = (startTime, durationHours) => {
   const [hours, minutes] = startTime.split(':').map(Number);
   const totalMinutes = hours * 60 + minutes + (durationHours * 60);
@@ -426,6 +431,10 @@ export default function DailyScheduleView({
               </div>
             ))}
             <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm bg-indigo-500" />
+              <span className="text-xs text-slate-600">Lesson</span>
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="inline-block w-3 h-3 rounded-sm bg-slate-400" />
               <span className="text-xs text-slate-600">Blocked</span>
             </div>
@@ -620,6 +629,11 @@ export default function DailyScheduleView({
                                         currentMin += 30;
                                       }
 
+                                      const lessonBlock = isLessonBlock(block);
+                                      const blockColor = lessonBlock
+                                        ? `bg-indigo-500 ${onBlockClick ? 'hover:bg-indigo-600' : ''}`
+                                        : `bg-slate-400 ${onBlockClick ? 'hover:bg-slate-500' : ''}`;
+
                                       return (
                                         <div
                                           key={`block-${bay.id}-${halfSlot}`}
@@ -630,7 +644,7 @@ export default function DailyScheduleView({
                                           }}
                                         >
                                           <div
-                                            className={`absolute inset-0 bg-slate-400 text-white p-2 overflow-hidden flex flex-col justify-center ${onBlockClick ? 'cursor-pointer hover:bg-slate-500 transition-colors' : ''}`}
+                                            className={`absolute inset-0 ${blockColor} text-white p-2 overflow-hidden flex flex-col justify-center ${onBlockClick ? 'cursor-pointer transition-colors' : ''}`}
                                             onClick={onBlockClick ? () => onBlockClick(block) : undefined}
                                             title={onBlockClick ? "Click to edit or remove this block" : undefined}
                                           >

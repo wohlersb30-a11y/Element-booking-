@@ -2,10 +2,11 @@ import React, { useMemo } from "react";
 import { format, parseISO } from "date-fns";
 import { Loader2, CalendarDays } from "lucide-react";
 
-// Shared picker for open lesson slots at a location. Shows only future, active
-// slots that aren't already held by a (non-cancelled) lesson booking, grouped by
-// date. Used both at checkout (schedule the first lesson) and in My Lessons
-// (spend a banked credit).
+// Shared picker for open lesson times at a location. Takes the flat list of
+// available 60-minute start times returned by the `open_lesson_times` RPC
+// (each row: { lesson_date, start_time, end_time }), groups them by date, and
+// lets the customer pick one. Used both at checkout (schedule the first lesson)
+// and in My Lessons (spend a banked credit).
 function to12h(t) {
   if (!t || typeof t !== "string" || !t.includes(":")) return String(t ?? "");
   const [h, m] = t.split(":").map(Number);
@@ -15,47 +16,32 @@ function to12h(t) {
   return `${h12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-function todayStr() {
-  return format(new Date(), "yyyy-MM-dd");
+// Stable key for a time slot (a date + start time uniquely identifies one).
+function timeKey(t) {
+  return t ? `${t.lesson_date}T${t.start_time}` : "";
 }
 
 export default function LessonSlotPicker({
-  slots = [],
-  bookings = [],
+  times = [],
   location,
-  selectedSlotId,
+  selected,
   onSelect,
   loading = false
 }) {
-  const bookedSlotIds = useMemo(() => {
-    const s = new Set();
-    for (const b of bookings) {
-      if (b.status !== "cancelled" && b.slot_id) s.add(b.slot_id);
-    }
-    return s;
-  }, [bookings]);
-
   const grouped = useMemo(() => {
-    const today = todayStr();
-    const open = (slots || [])
-      .filter(
-        (s) =>
-          s.is_active &&
-          (!location || s.location === location) &&
-          s.lesson_date >= today &&
-          !bookedSlotIds.has(s.id)
-      )
-      .sort((a, b) =>
-        a.lesson_date === b.lesson_date
-          ? String(a.start_time).localeCompare(String(b.start_time))
-          : a.lesson_date.localeCompare(b.lesson_date)
-      );
+    const sorted = [...(times || [])].sort((a, b) =>
+      a.lesson_date === b.lesson_date
+        ? String(a.start_time).localeCompare(String(b.start_time))
+        : String(a.lesson_date).localeCompare(String(b.lesson_date))
+    );
     const byDate = {};
-    for (const s of open) {
-      (byDate[s.lesson_date] = byDate[s.lesson_date] || []).push(s);
+    for (const t of sorted) {
+      (byDate[t.lesson_date] = byDate[t.lesson_date] || []).push(t);
     }
     return Object.entries(byDate);
-  }, [slots, location, bookedSlotIds]);
+  }, [times]);
+
+  const selectedKey = timeKey(selected);
 
   if (loading) {
     return (
@@ -82,29 +68,28 @@ export default function LessonSlotPicker({
 
   return (
     <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
-      {grouped.map(([date, daySlots]) => (
+      {grouped.map(([date, dayTimes]) => (
         <div key={date}>
           <p className="text-sm font-semibold text-slate-700 mb-2">
             {format(parseISO(date), "EEEE, MMM d")}
           </p>
           <div className="flex flex-wrap gap-2">
-            {daySlots.map((s) => {
-              const active = s.id === selectedSlotId;
+            {dayTimes.map((t) => {
+              const active = timeKey(t) === selectedKey;
               return (
                 <button
-                  key={s.id}
+                  key={timeKey(t)}
                   type="button"
-                  onClick={() => onSelect(s)}
+                  onClick={() => onSelect(t)}
                   className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
                     active
                       ? "bg-[#2d5567] text-white border-[#2d5567]"
                       : "bg-white text-slate-700 border-slate-300 hover:border-[#2d5567]"
                   }`}
-                  title={s.note || ""}
                 >
-                  {to12h(s.start_time)}
+                  {to12h(t.start_time)}
                   <span className={`ml-1 text-xs ${active ? "text-blue-100" : "text-slate-400"}`}>
-                    · {s.duration_minutes}m
+                    · 60m
                   </span>
                 </button>
               );

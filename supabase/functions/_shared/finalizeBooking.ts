@@ -2,7 +2,7 @@ import type Stripe from 'npm:stripe@14.11.0';
 import { serviceClient } from './clients.ts';
 import { applyDebitPlan } from './bankedHours.ts';
 import { sendEmail } from './email.ts';
-import { getLessonPackage } from './lessons.ts';
+import { getLessonPackage, addMinutesToTime, DEFAULT_LESSON_MINUTES } from './lessons.ts';
 
 const toMinutes = (t: string) => {
   const [h, m] = String(t).split(':').map(Number);
@@ -376,7 +376,8 @@ async function finalizeLessonPurchase(
   const pkg = getLessonPackage(m.package_id || '');
   if (!pkg) return { success: false, error: 'Unknown lesson package.' };
   const price = Number(m.price || pkg.price);
-  const slotId = m.slot_id || null;
+  const lessonDate = m.lesson_date || null;
+  const startTime = m.start_time || null;
   const customerName = m.customer_name || session.customer_details?.name || '';
   const customerPhone = m.customer_phone || '';
 
@@ -444,49 +445,50 @@ async function finalizeLessonPurchase(
     throw creditErr;
   }
 
-  // 2) Schedule the first lesson into the chosen slot (best effort).
+  // 2) Schedule the first lesson at the chosen time (best effort). No bay is
+  //    assigned here — the admin assigns one afterward from the Lesson Schedule.
   let firstBooking: any = null;
-  if (slotId) {
-    const { data: slot } = await db.from('lesson_slots').select('*').eq('id', slotId).single();
-    if (slot && slot.is_active) {
-      const { data: b, error: bErr } = await db
-        .from('lesson_bookings')
-        .insert({
-          slot_id: slot.id,
-          customer_id: userId,
-          customer_name: customerName,
-          customer_email: email,
-          customer_phone: customerPhone,
-          location: slot.location,
-          lesson_date: slot.lesson_date,
-          start_time: slot.start_time,
-          end_time: slot.end_time,
-          duration_minutes: slot.duration_minutes,
-          booking_source: pkg.credits > 1 ? 'package' : 'single',
-          package_type: pkg.packageType,
-          amount_paid: price,
-          stripe_payment_id: paymentIntentId,
-          status: 'confirmed'
-        })
-        .select()
-        .single();
-      // On a lost-slot race (one-per-slot unique / 23505) we simply skip the
-      // first booking and leave every credit in the bank.
-      if (!bErr && b) {
-        firstBooking = b;
-        await db.from('lesson_credit_transactions').insert({
-          user_email: email,
-          user_id: userId,
-          location: slot.location,
-          delta: -1,
-          reason: 'booking',
-          package_type: pkg.packageType,
-          lesson_booking_id: b.id,
-          stripe_payment_id: paymentIntentId,
-          created_by: 'system',
-          note: `Scheduled first lesson ${slot.lesson_date} ${slot.start_time}`
-        });
-      }
+  if (lessonDate && startTime && location) {
+    const endTime = addMinutesToTime(startTime, DEFAULT_LESSON_MINUTES);
+    const { data: b, error: bErr } = await db
+      .from('lesson_bookings')
+      .insert({
+        customer_id: userId,
+        customer_name: customerName,
+        customer_email: email,
+        customer_phone: customerPhone,
+        location,
+        lesson_date: lessonDate,
+        start_time: startTime,
+        end_time: endTime,
+        duration_minutes: DEFAULT_LESSON_MINUTES,
+        booking_source: pkg.credits > 1 ? 'package' : 'single',
+        package_type: pkg.packageType,
+        amount_paid: price,
+        stripe_payment_id: paymentIntentId,
+        status: 'confirmed'
+      })
+      .select()
+      .single();
+    // On a lost-time race (overlap exclusion 23P01 / unique 23505) we simply
+    // skip the first booking and leave every credit in the bank — no money is
+    // lost since the package was already charged.
+    if (!bErr && b) {
+      firstBooking = b;
+      await db.from('lesson_credit_transactions').insert({
+        user_email: email,
+        user_id: userId,
+        location,
+        delta: -1,
+        reason: 'booking',
+        package_type: pkg.packageType,
+        lesson_booking_id: b.id,
+        stripe_payment_id: paymentIntentId,
+        created_by: 'system',
+        note: `Scheduled first lesson ${lessonDate} ${startTime}`
+      });
+    } else if (bErr) {
+      console.error('First-lesson scheduling skipped (banked instead):', (bErr as any).message);
     }
   }
 
@@ -503,8 +505,8 @@ async function finalizeLessonPurchase(
     total: price,
     paymentMethod: 'Credit card',
     notes: firstBooking
-      ? `First lesson scheduled. Bank remaining: ${pkg.credits - 1}.`
-      : `No slot scheduled at checkout. ${pkg.credits} lesson credit(s) banked.`
+      ? `First lesson scheduled — ASSIGN A BAY in the Lesson Schedule to block it from public booking. Bank remaining: ${pkg.credits - 1}.`
+      : `No time scheduled at checkout. ${pkg.credits} lesson credit(s) banked.`
   });
 
   return {

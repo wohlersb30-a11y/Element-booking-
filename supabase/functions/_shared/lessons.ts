@@ -26,3 +26,36 @@ export function getLessonPackage(id: string): LessonPackage | null {
 }
 
 export const DEFAULT_LESSON_MINUTES = 60;
+
+// Add minutes to an 'HH:MM' time, returning 'HH:MM'. Used to derive a lesson's
+// end time from its start (every lesson is DEFAULT_LESSON_MINUTES long).
+export function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = String(time).split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  const nh = Math.floor(total / 60);
+  const nm = total % 60;
+  return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
+}
+
+// True when `date` ('yyyy-MM-dd') + `startTime` ('HH:MM') is an available
+// 60-minute lesson start at `location`, per the open_lesson_times RPC (which
+// respects Brandon's weekly windows and removes overlapping/past times).
+export async function isLessonTimeOpen(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  location: string,
+  date: string,
+  startTime: string,
+): Promise<boolean> {
+  const { data, error } = await db.rpc("open_lesson_times", {
+    p_location: location,
+    p_from: date,
+    p_to: date,
+  });
+  if (error) {
+    console.error("open_lesson_times (validation) failed:", error.message);
+    return false;
+  }
+  // deno-lint-ignore no-explicit-any
+  return (data || []).some((r: any) => r.lesson_date === date && r.start_time === startTime);
+}
