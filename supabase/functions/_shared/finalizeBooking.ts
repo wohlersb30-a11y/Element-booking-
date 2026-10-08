@@ -105,29 +105,50 @@ export async function finalizeBookingFromSession(
     return { success: true, bookings: existing, alreadyProcessed: true };
   }
 
-  // Fast-path app-level availability re-check (cheap, friendly error).
+  // Fast-path app-level availability re-check (cheap, friendly error). A bay is
+  // unavailable if it overlaps an active booking OR an admin schedule block for
+  // the same date/time. Checking blocks here is the real backstop: it stops ANY
+  // path (regular booking or specials) from landing on a bay the admin blocked,
+  // since the DB exclusion constraint only guards booking-vs-booking overlaps.
   const newStart = toMinutes(bookingData.time);
   const newEnd = toMinutes(bookingData.endTime);
   const { data: sameDay } = await db
     .from('bookings')
     .select('*')
     .eq('booking_date', bookingData.date);
+  const { data: dayBlocks } = await db
+    .from('schedule_blocks')
+    .select('*')
+    .eq('block_date', bookingData.date);
 
   const conflicts: string[] = [];
+  const blocked: string[] = [];
   for (const bayInfo of bookingData.selectedBays) {
     const overlap = (sameDay || []).some((b: any) => {
       if (b.simulator_id !== bayInfo.bayId) return false;
       if (b.status === 'cancelled') return false;
       return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
     });
-    if (overlap) conflicts.push(bayInfo.bayName);
+    if (overlap) {
+      conflicts.push(bayInfo.bayName);
+      continue;
+    }
+    const hitsBlock = (dayBlocks || []).some((blk: any) => {
+      if (blk.simulator_id !== bayInfo.bayId) return false;
+      const bStart = toMinutes(blk.start_time);
+      const bEnd = toMinutes(blk.end_time);
+      if (Number.isNaN(bStart) || Number.isNaN(bEnd)) return false;
+      return newStart < bEnd && newEnd > bStart;
+    });
+    if (hitsBlock) blocked.push(bayInfo.bayName);
   }
-  if (conflicts.length > 0) {
+  if (conflicts.length > 0 || blocked.length > 0) {
     await releaseHold(stripe, paymentIntentId);
+    const names = [...conflicts, ...blocked].join(', ');
     return {
       success: false,
       conflict: true,
-      error: `Sorry, ${conflicts.join(', ')} was just booked by someone else. Your card hold has been released — please choose another time.`
+      error: `Sorry, ${names} is no longer available for that time. Your card hold has been released — please choose another time.`
     };
   }
 

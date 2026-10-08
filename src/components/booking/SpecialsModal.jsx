@@ -37,16 +37,32 @@ const calculateEndTime = (startTime, duration) => {
   return `${endHours.toString().padStart(2, "0")}:${endMinutes.toString().padStart(2, "0")}`;
 };
 
-// Same overlap logic the rest of the app uses to decide if a bay is free.
-const isBayAvailable = (bay, date, startTime, duration, existingBookings) => {
+// Same overlap logic the rest of the app uses to decide if a bay is free:
+// a bay is unavailable if it overlaps an active booking OR an admin schedule
+// block for that date/time. Specials MUST honor blocks too, otherwise a blocked
+// bay could be booked through the specials flow.
+const isBayAvailable = (bay, date, startTime, duration, existingBookings, blocks = []) => {
   const startMins = toMinutes(startTime);
   const endMins = startMins + duration * 60;
-  return !existingBookings.some((booking) => {
+
+  const hasBookingConflict = existingBookings.some((booking) => {
     if (booking.simulator_id !== bay.id) return false;
     if (booking.booking_date !== date) return false;
     if (booking.status === "cancelled") return false;
     return startMins < toMinutes(booking.end_time) && endMins > toMinutes(booking.start_time);
   });
+  if (hasBookingConflict) return false;
+
+  const isBlocked = blocks.some((block) => {
+    if (block.simulator_id !== bay.id) return false;
+    if (block.block_date !== date) return false;
+    const bStart = toMinutes(block.start_time);
+    const bEnd = toMinutes(block.end_time);
+    if (Number.isNaN(bStart) || Number.isNaN(bEnd)) return false;
+    return startMins < bEnd && endMins > bStart;
+  });
+
+  return !isBlocked;
 };
 
 export default function SpecialsModal({
@@ -54,6 +70,7 @@ export default function SpecialsModal({
   location,
   allBays,
   allBookings,
+  allBlocks = [],
   customerName,
   customerEmail,
   customerPhone,
@@ -119,9 +136,9 @@ export default function SpecialsModal({
     return allBays
       .filter((b) => b.location === location)
       .filter((bay) =>
-        isBayAvailable(bay, formattedDate, selectedTime, effectiveDuration, allBookings)
+        isBayAvailable(bay, formattedDate, selectedTime, effectiveDuration, allBookings, allBlocks)
       );
-  }, [selectedDate, selectedTime, effectiveDuration, allBays, allBookings, location]);
+  }, [selectedDate, selectedTime, effectiveDuration, allBays, allBookings, allBlocks, location]);
 
   // Drop the chosen bay if it is no longer in the available set (e.g. the
   // customer changed the time or number of hours).
@@ -166,7 +183,7 @@ export default function SpecialsModal({
     if (
       !openBay ||
       openBay.location !== location ||
-      !isBayAvailable(openBay, formattedDate, selectedTime, duration, allBookings)
+      !isBayAvailable(openBay, formattedDate, selectedTime, duration, allBookings, allBlocks)
     ) {
       setError("Sorry, that bay was just taken. Please pick another bay or time.");
       setSelectedBayId(null);

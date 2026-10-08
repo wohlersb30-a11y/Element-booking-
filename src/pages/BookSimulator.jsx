@@ -1204,6 +1204,7 @@ export default function BookSimulator() {
           location={selectedLocation}
           allBays={allBays}
           allBookings={allBookings}
+          allBlocks={allBlocks}
           customerName={customerName}
           customerEmail={customerEmail}
           customerPhone={customerPhone}
