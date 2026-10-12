@@ -115,10 +115,14 @@ export default function AdminDashboardBurnsville() {
   const loadBookingsForDate = async () => {
     try {
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
+      // Query by date server-side. Fetching the whole table and filtering on the
+      // client hit PostgREST's default 1000-row cap once schedule_blocks grew,
+      // so newly created blocks intermittently failed to appear. Degrade
+      // gracefully: one failing query shouldn't blank the whole schedule.
       const [allBookings, allBlocks, allMemberBookings] = await Promise.all([
-        Booking.list().catch(() => []),
-        ScheduleBlock.list().catch(() => []),
-        base44.entities.MemberBooking.list().catch(() => [])
+        Booking.filter({ booking_date: formattedDate }).catch(() => []),
+        ScheduleBlock.filter({ block_date: formattedDate }).catch(() => []),
+        base44.entities.MemberBooking.filter({ booking_date: formattedDate }).catch(() => [])
       ]);
 
       const dateBookings = allBookings.filter(

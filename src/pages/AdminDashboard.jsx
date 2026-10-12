@@ -91,10 +91,13 @@ export default function AdminDashboard() {
   const loadBookingsForDate = async () => {
     try {
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
+      // Query by date server-side. Fetching the whole table and filtering on the
+      // client hit PostgREST's default 1000-row cap once schedule_blocks grew,
+      // so newly created blocks intermittently failed to appear.
       const [allBookings, allBlocks, allMemberBookings] = await Promise.all([
-        Booking.list(),
-        ScheduleBlock.list(),
-        base44.entities.MemberBooking.list()
+        Booking.filter({ booking_date: formattedDate }),
+        ScheduleBlock.filter({ block_date: formattedDate }),
+        base44.entities.MemberBooking.filter({ booking_date: formattedDate })
       ]);
 
       const dateBookings = allBookings.filter(
