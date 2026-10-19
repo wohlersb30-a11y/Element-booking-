@@ -326,7 +326,11 @@ export default function MemberBookings() {
         return;
       }
 
-      alert("Booked! This session is included in your membership. 🏌️");
+      alert(
+        d.guestChargeDue
+          ? "Booked! This session is included in your membership. 🏌️\n\nYou're out of guest passes this month, so a guest fee will be collected at the front desk."
+          : "Booked! This session is included in your membership. 🏌️"
+      );
       setSelectedDate(null);
       setSelectedTime("");
       setSelectedBay("");
@@ -578,22 +582,24 @@ export default function MemberBookings() {
                 </Alert>
               )}
 
-              {/* Guest pass */}
-              <label
-                className={`flex items-center gap-3 rounded-lg border p-3 ${
-                  passesRemaining > 0 ? "cursor-pointer hover:bg-slate-50" : "opacity-50 cursor-not-allowed"
-                }`}
-              >
+              {/* Guest pass — always allowed. With passes left one is consumed;
+                  otherwise the booking still goes through and a guest fee is
+                  collected at the front desk. */}
+              <label className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-slate-50">
                 <input
                   type="checkbox"
                   className="w-4 h-4"
-                  disabled={passesRemaining <= 0}
                   checked={wantsGuest}
                   onChange={(e) => setWantsGuest(e.target.checked)}
                 />
                 <Users className="w-4 h-4 text-purple-600" />
                 <span className="text-sm">
-                  Bring a guest <span className="text-slate-500">(uses 1 of {passesRemaining} passes)</span>
+                  Bring a guest{" "}
+                  <span className="text-slate-500">
+                    {passesRemaining > 0
+                      ? `(uses 1 of ${passesRemaining} passes)`
+                      : "(no passes left — a guest fee will be charged at the front desk)"}
+                  </span>
                 </span>
               </label>
 
@@ -691,6 +697,11 @@ export default function MemberBookings() {
                               {b.guest_pass_used && (
                                 <Badge variant="outline" className="text-xs">
                                   <Users className="w-3 h-3 mr-1" /> +Guest
+                                </Badge>
+                              )}
+                              {b.guest_charge_due && (
+                                <Badge className="bg-rose-100 text-rose-700 text-xs">
+                                  <Users className="w-3 h-3 mr-1" /> Guest fee at desk
                                 </Badge>
                               )}
                             </div>

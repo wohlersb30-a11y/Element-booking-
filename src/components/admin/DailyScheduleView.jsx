@@ -570,6 +570,11 @@ export default function DailyScheduleView({
                                           <div className="text-[10px] opacity-80 truncate">
                                             {isMember ? (booking.is_prime ? 'Prime member' : 'Included') : booking.customer_phone}
                                           </div>
+                                          {isMember && booking.guest_charge_due && (
+                                            <div className="text-[9px] font-bold text-rose-100 truncate">
+                                              + Guest fee due at desk
+                                            </div>
+                                          )}
                                           <div className="flex items-center gap-1 mt-0.5">
                                             <Users className="w-3 h-3" />
                                             <span className="text-[9px]">{booking.number_of_players || 1}</span>

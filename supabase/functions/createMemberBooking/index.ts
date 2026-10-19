@@ -77,10 +77,11 @@ Deno.serve(async (req) => {
     const usage = await poolUsage(db, membership, plan, date);
     const cov = evaluateCoverage(plan, date, startTime, endTime, Number(durationHours), usage.hoursRemaining, bay);
 
-    // Guest pass availability (shared pool).
-    if (wantsGuest && usage.passesRemaining <= 0) {
-      return json({ success: false, error: 'No guest passes remaining this month.', passesRemaining: 0 });
-    }
+    // Guest handling (shared pool). A member can always bring a guest: if they
+    // still have a pass it's consumed, otherwise the booking goes through and we
+    // flag it so staff collect the guest fee on-site (no pass is consumed).
+    const hasGuestPass = !!wantsGuest && usage.passesRemaining > 0;
+    const guestChargeDue = !!wantsGuest && usage.passesRemaining <= 0;
 
     // Prime slots aren't free — send the client to the paid checkout flow.
     if (!cov.included) {
@@ -116,7 +117,8 @@ Deno.serve(async (req) => {
         check_in_status: 'not_arrived',
         included: true,
         is_prime: false,
-        guest_pass_used: !!wantsGuest,
+        guest_pass_used: hasGuestPass,
+        guest_charge_due: guestChargeDue,
         payment_status: 'included',
         is_exclusive_hours: false
       })
@@ -132,8 +134,9 @@ Deno.serve(async (req) => {
       booking: created,
       included: true,
       totalCost: 0,
+      guestChargeDue,
       hoursRemaining: Math.max(0, usage.hoursRemaining - Number(durationHours)),
-      passesRemaining: Math.max(0, usage.passesRemaining - (wantsGuest ? 1 : 0))
+      passesRemaining: Math.max(0, usage.passesRemaining - (hasGuestPass ? 1 : 0))
     });
   } catch (error) {
     console.error('createMemberBooking error:', (error as any).message);

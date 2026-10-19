@@ -92,9 +92,10 @@ Deno.serve(async (req) => {
     if (cov.totalCost <= 0) {
       return json({ error: 'Could not price this booking.' }, { status: 400 });
     }
-    if (wantsGuest && usage.passesRemaining <= 0) {
-      return json({ error: 'No guest passes remaining this month.' }, { status: 400 });
-    }
+    // A member can always bring a guest. If they're out of passes we let the
+    // booking proceed and flag it so staff collect the guest fee on-site (no
+    // pass is consumed); finalizeBooking reads guestChargeDue from metadata.
+    const guestChargeDue = !!wantsGuest && usage.passesRemaining <= 0;
 
     // Data finalizeBooking needs to insert the member_booking after payment.
     const memberData = {
@@ -110,7 +111,8 @@ Deno.serve(async (req) => {
       endTime,
       durationHours: Number(durationHours),
       totalCost: cov.totalCost,
-      wantsGuest: !!wantsGuest
+      wantsGuest: !!wantsGuest,
+      guestChargeDue
     };
 
     // Minnesota sales tax on the discounted prime rate, shown as a separate

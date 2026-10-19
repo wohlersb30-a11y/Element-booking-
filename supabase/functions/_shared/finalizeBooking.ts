@@ -282,7 +282,8 @@ async function finalizeMemberBooking(
       check_in_status: 'not_arrived',
       included: false,
       is_prime: true,
-      guest_pass_used: !!d.wantsGuest,
+      guest_pass_used: !!d.wantsGuest && !d.guestChargeDue,
+      guest_charge_due: !!d.guestChargeDue,
       payment_status: 'authorized',
       stripe_payment_id: paymentIntentId,
       is_exclusive_hours: false
@@ -310,7 +311,9 @@ async function finalizeMemberBooking(
     endTime: d.endTime,
     bays: d.simulatorName ? [d.simulatorName] : [],
     total: d.totalCost,
-    paymentMethod: d.wantsGuest ? 'Member (guest pass)' : 'Member'
+    paymentMethod: d.wantsGuest
+      ? (d.guestChargeDue ? 'Member (guest — fee due at desk)' : 'Member (guest pass)')
+      : 'Member'
   });
 
   return { success: true, bookings: created, kind: 'member' };
