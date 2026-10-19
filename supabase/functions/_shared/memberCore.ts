@@ -57,7 +57,10 @@ export async function poolUsage(db: DB, membership: any, plan: Plan, date: Date)
   };
 }
 
-// True if the bay already has an overlapping regular OR member booking.
+// True if the bay already has an overlapping regular booking, member booking,
+// OR admin schedule block. Schedule blocks (leagues / maintenance / events /
+// lesson bay assignments) make a bay unbookable for EVERY path — public,
+// special, member, banked, and lesson — not just public bookings.
 export async function hasConflict(
   db: DB,
   simulatorId: string,
@@ -65,7 +68,7 @@ export async function hasConflict(
   startMin: number,
   endMin: number
 ): Promise<boolean> {
-  const [{ data: reg }, { data: mem }] = await Promise.all([
+  const [{ data: reg }, { data: mem }, { data: blk }] = await Promise.all([
     db.from('bookings')
       .select('start_time,end_time,status')
       .eq('simulator_id', simulatorId)
@@ -75,13 +78,20 @@ export async function hasConflict(
       .select('start_time,end_time,status')
       .eq('simulator_id', simulatorId)
       .eq('booking_date', bookingDate)
-      .neq('status', 'cancelled')
+      .neq('status', 'cancelled'),
+    db.from('schedule_blocks')
+      .select('start_time,end_time')
+      .eq('simulator_id', simulatorId)
+      .eq('block_date', bookingDate)
   ]);
   const overlaps = (arr: any[]) =>
-    (arr || []).some(
-      (b) => startMin < timeToMinutes(b.end_time) && endMin > timeToMinutes(b.start_time)
-    );
-  return overlaps(reg) || overlaps(mem);
+    (arr || []).some((b) => {
+      const bs = timeToMinutes(b.start_time);
+      const be = timeToMinutes(b.end_time);
+      if (Number.isNaN(bs) || Number.isNaN(be)) return false;
+      return startMin < be && endMin > bs;
+    });
+  return overlaps(reg) || overlaps(mem) || overlaps(blk);
 }
 
 // Decide included vs prime and the member-discounted price.

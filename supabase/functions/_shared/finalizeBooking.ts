@@ -243,16 +243,19 @@ async function finalizeMemberBooking(
     return { success: true, bookings: existing, alreadyProcessed: true, kind: 'member' };
   }
 
-  // Conflict re-check across regular + member bookings.
+  // Conflict re-check across regular + member bookings AND admin schedule
+  // blocks — a blocked bay must never be bookable by any path.
   const s = toMinutes(d.startTime);
   const e = toMinutes(d.endTime);
-  const [{ data: reg }, { data: mem }] = await Promise.all([
+  const [{ data: reg }, { data: mem }, { data: blk }] = await Promise.all([
     db.from('bookings').select('start_time,end_time,status,simulator_id')
       .eq('simulator_id', d.simulatorId).eq('booking_date', d.date).neq('status', 'cancelled'),
     db.from('member_bookings').select('start_time,end_time,status,simulator_id')
-      .eq('simulator_id', d.simulatorId).eq('booking_date', d.date).neq('status', 'cancelled')
+      .eq('simulator_id', d.simulatorId).eq('booking_date', d.date).neq('status', 'cancelled'),
+    db.from('schedule_blocks').select('start_time,end_time,simulator_id')
+      .eq('simulator_id', d.simulatorId).eq('block_date', d.date)
   ]);
-  const clash = [...(reg || []), ...(mem || [])].some(
+  const clash = [...(reg || []), ...(mem || []), ...(blk || [])].some(
     (b: any) => s < toMinutes(b.end_time) && e > toMinutes(b.start_time)
   );
   if (clash) {
@@ -567,16 +570,19 @@ async function finalizeBankedBooking(
     return { success: true, bookings: existing, alreadyProcessed: true };
   }
 
-  // Conflict re-check across both booking tables.
+  // Conflict re-check across both booking tables AND admin schedule blocks —
+  // a blocked bay must never be bookable by any path.
   const s = toMinutes(d.startTime);
   const e = toMinutes(d.endTime);
-  const [{ data: reg }, { data: mem }] = await Promise.all([
+  const [{ data: reg }, { data: mem }, { data: blk }] = await Promise.all([
     db.from('bookings').select('start_time,end_time,status,simulator_id')
       .eq('simulator_id', d.simulatorId).eq('booking_date', d.bookingDate).neq('status', 'cancelled'),
     db.from('member_bookings').select('start_time,end_time,status,simulator_id')
-      .eq('simulator_id', d.simulatorId).eq('booking_date', d.bookingDate).neq('status', 'cancelled')
+      .eq('simulator_id', d.simulatorId).eq('booking_date', d.bookingDate).neq('status', 'cancelled'),
+    db.from('schedule_blocks').select('start_time,end_time,simulator_id')
+      .eq('simulator_id', d.simulatorId).eq('block_date', d.bookingDate)
   ]);
-  const clash = [...(reg || []), ...(mem || [])].some(
+  const clash = [...(reg || []), ...(mem || []), ...(blk || [])].some(
     (b: any) => s < toMinutes(b.end_time) && e > toMinutes(b.start_time)
   );
   if (clash) {
