@@ -188,6 +188,76 @@ export default function DailyScheduleView({
     [simulators]
   );
 
+  // Blocks may overlap each other on the same bay (e.g. a 9am–6pm block and a
+  // 4–11pm block). The flat half-hour grid can only draw one thing per slot, so
+  // an overlapping block used to vanish — its start slot was already consumed by
+  // the first block. Here we COALESCE strictly-overlapping blocks on the same
+  // bay into a single visual segment covering their union, so every blocked
+  // minute is shown. Non-overlapping (even adjacent) blocks are left alone.
+  // Each coalesced segment keeps a `_primary` real row so clicking it still
+  // opens a genuine block in the edit/remove modal.
+  const displayBlocks = useMemo(() => {
+    const toMinutes = (t) => {
+      if (!t || typeof t !== 'string') return NaN;
+      const [h, m] = t.split(':').map(Number);
+      if (Number.isNaN(h) || Number.isNaN(m)) return NaN;
+      return h * 60 + m;
+    };
+    const groups = {};
+    for (const b of blocks || []) {
+      if (!b || !b.simulator_id) continue;
+      (groups[`${b.simulator_id}|${b.block_date}`] ||= []).push(b);
+    }
+    const out = [];
+    for (const arr of Object.values(groups)) {
+      const sorted = [...arr].sort((a, c) => toMinutes(a.start_time) - toMinutes(c.start_time));
+      let cur = null;
+      const flush = () => {
+        if (!cur) return;
+        if (cur._members.length === 1) {
+          out.push(cur._members[0]); // untouched real row
+        } else {
+          const primary = cur._members[0];
+          out.push({
+            ...primary,
+            start_time: cur.start_time,
+            end_time: cur.end_time,
+            reason: cur._mixedReason ? "blocked" : primary.reason,
+            notes: cur._notes.join(" · "),
+            _primary: primary,
+            _members: cur._members
+          });
+        }
+        cur = null;
+      };
+      for (const b of sorted) {
+        const bs = toMinutes(b.start_time);
+        const be = toMinutes(b.end_time);
+        if (Number.isNaN(bs) || Number.isNaN(be)) { flush(); out.push(b); continue; }
+        if (cur && bs < cur._endMin) {
+          cur._members.push(b);
+          if (be > cur._endMin) { cur._endMin = be; cur.end_time = b.end_time; }
+          if (String(b.reason || "").toLowerCase() !== String(cur._members[0].reason || "").toLowerCase()) {
+            cur._mixedReason = true;
+          }
+          if (b.notes) cur._notes.push(b.notes);
+        } else {
+          flush();
+          cur = {
+            start_time: b.start_time,
+            end_time: b.end_time,
+            _endMin: be,
+            _members: [b],
+            _notes: b.notes ? [b.notes] : [],
+            _mixedReason: false
+          };
+        }
+      }
+      flush();
+    }
+    return out;
+  }, [blocks]);
+
   // Date-range price overrides that are active on the currently-viewed day.
   // Rules are stored per-simulator (see the pricing_rules table); here we
   // regroup the matching ones by label + date span and split their rates back
@@ -236,7 +306,7 @@ export default function DailyScheduleView({
   };
 
   const getBlockForBayAndTime = (bayId, timeSlot) => {
-    return blocks.find(block => {
+    return displayBlocks.find(block => {
       if (block.simulator_id !== bayId) return false;
 
       const [blockHour, blockMin] = block.start_time.split(':').map(Number);
@@ -650,7 +720,7 @@ export default function DailyScheduleView({
                                         >
                                           <div
                                             className={`absolute inset-0 ${blockColor} text-white p-2 overflow-hidden flex flex-col justify-center ${onBlockClick ? 'cursor-pointer transition-colors' : ''}`}
-                                            onClick={onBlockClick ? () => onBlockClick(block) : undefined}
+                                            onClick={onBlockClick ? () => onBlockClick(block._primary || block) : undefined}
                                             title={onBlockClick ? "Click to edit or remove this block" : undefined}
                                           >
                                             <div className="text-[10px] font-semibold uppercase">{block.reason}</div>
