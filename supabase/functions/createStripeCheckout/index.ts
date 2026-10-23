@@ -173,7 +173,13 @@ Deno.serve(async (req) => {
         : { customer_email: customerEmail || user.email }),
       payment_intent_data: {
         capture_method: 'manual',
-        setup_future_usage: 'off_session',
+        // NOTE: do NOT set setup_future_usage here. Combining an off-session
+        // "save the card" setup with a manual-capture authorization hold makes
+        // Stripe apply stricter authentication and causes some card issuers to
+        // DECLINE the authorization outright — customers saw "won't confirm a
+        // payment method" across multiple good cards (reported 2026-10-22).
+        // The hold works fine without it; the saved Customer (getOrCreateCustomer)
+        // still offers the card on return visits.
         description: `Booking hold for ${customerName}`,
         metadata: {
           customer_name: customerName,
