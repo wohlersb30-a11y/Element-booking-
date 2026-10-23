@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -386,13 +387,46 @@ export default function BookSimulator() {
         setCustomerName(currentUser.full_name);
       }
       
-      const [bays, bookings, specials, activeClosures, blocks] = await Promise.all([
+      // Load bookings + schedule blocks for a bounded FUTURE window (today
+      // through one year out) instead of the whole table. The plain .list()
+      // helpers do an unbounded select('*') that PostgREST silently caps at
+      // 1000 rows — once recurring leagues push schedule_blocks (or bookings)
+      // past that cap, the block/booking covering a given bay+time may fall
+      // outside the loaded set, so the page shows a taken/blocked bay as free.
+      // The customer then books it and the server re-check rejects at payment
+      // ("almost charged, then couldn't book"). A dated range keeps each set
+      // small and complete for every date a customer can actually pick.
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      const horizonDate = new Date();
+      horizonDate.setDate(horizonDate.getDate() + 365);
+      const horizonStr = format(horizonDate, "yyyy-MM-dd");
+
+      const [bays, bookingsRes, specials, activeClosures, blocksRes] = await Promise.all([
         base44.entities.Simulator.list(),
-        base44.entities.Booking.list(),
+        supabase
+          .from("bookings")
+          .select("*")
+          .gte("booking_date", todayStr)
+          .lte("booking_date", horizonStr)
+          .limit(10000),
         base44.entities.Special.list().catch(() => []),
         base44.entities.TeeSheetClosure.filter({ is_active: true }).catch(() => []),
-        base44.entities.ScheduleBlock.list().catch(() => [])
+        supabase
+          .from("schedule_blocks")
+          .select("*")
+          .gte("block_date", todayStr)
+          .lte("block_date", horizonStr)
+          .limit(10000)
       ]);
+
+      // Bookings are safety-critical for availability — fail loud rather than
+      // silently showing a taken bay as free.
+      if (bookingsRes.error) throw bookingsRes.error;
+      const bookings = bookingsRes.data || [];
+      // Blocks fail open (as the old .catch(() => []) did); the server-side
+      // re-check in finalizeBooking is the real backstop against blocked bays.
+      if (blocksRes.error) console.error("Block load failed:", blocksRes.error.message);
+      const blocks = blocksRes.data || [];
 
       setAllSpecials(specials || []);
       setClosures(activeClosures || []);
