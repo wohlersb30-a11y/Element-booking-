@@ -13,6 +13,10 @@ import {
   buildStartOptions,
 } from "@/config/hours";
 
+// Shortest bookable session. A start time is only offered if at least this much
+// time fits before close, so we never present a start with no valid duration.
+const MIN_DURATION_HOURS = 1;
+
 const DURATIONS = [
   { value: 1, label: "1 hour" },
   { value: 1.5, label: "1.5 hours" },
@@ -46,7 +50,12 @@ export default function TimeSelectionForm({
   // step every half hour from open up to (but not including) close.
   const closeTime = closeTimeForDate(selectedDate, hours);
   const closeMinutes = toMinutes(closeTime);
-  const timeSlots = buildStartOptions(hours.open, closeTime, 30);
+  // Start options step every half hour from open, but only up to the latest
+  // start whose shortest session (1 hour) still ends by close — so a booking
+  // can never run past closing time.
+  const timeSlots = buildStartOptions(hours.open, closeTime, 30).filter(
+    (s) => toMinutes(s.value) + MIN_DURATION_HOURS * 60 <= closeMinutes
+  );
 
   const getAvailableDurations = () => {
     if (!selectedTime) return DURATIONS;

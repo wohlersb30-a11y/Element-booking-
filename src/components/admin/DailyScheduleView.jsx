@@ -17,13 +17,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-// Build the hourly column labels for the grid, from the location's open hour
-// through its closing-boundary hour (inclusive), e.g. 09:00…23:00.
+// Build the hourly column labels for the grid. Each column spans a full hour
+// (it renders two 30-min cells), so the LAST column must be the hour that ENDS
+// at close — i.e. stop strictly before the close hour. For a 23:00 (11 PM)
+// close this yields 09:00…22:00: the final "10 PM" column covers 10–11 PM and
+// the grid ends exactly at 11 PM (no 11 PM–midnight column). A 24:00 (midnight)
+// close yields …23:00 (an 11 PM–midnight column), ending at midnight.
 const buildHourColumns = (openTime, closeTime) => {
   const startHour = Math.floor(toMinutes(openTime) / 60);
   const endHour = Math.floor(toMinutes(closeTime) / 60);
   const out = [];
-  for (let h = startHour; h <= endHour; h++) {
+  for (let h = startHour; h < endHour; h++) {
     out.push(`${String(h).padStart(2, "0")}:00`);
   }
   return out;

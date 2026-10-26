@@ -498,9 +498,13 @@ export default function BookSimulator() {
       ? new Date().getHours() * 60 + new Date().getMinutes()
       : -1;
 
-    // 1) Try the exact requested time first.
+    // 1) Try the exact requested time first — but only if the whole session
+    //    (start + duration) fits inside operating hours. Without this guard a
+    //    stale/long duration could let a booking run past close; the outward
+    //    search below already enforces the same bound.
     let chosenTime = selectedTime;
-    let available = findAvailableAt(selectedTime);
+    const reqFitsHours = reqMin >= openMin && reqMin + durMin <= closeMin;
+    let available = reqFitsHours ? findAvailableAt(selectedTime) : [];
 
     // 2) If the exact slot is full, walk outward (30-min steps) to the nearest
     //    start time that has at least one open bay, staying within hours.
@@ -820,7 +824,19 @@ export default function BookSimulator() {
                 selectedTime={selectedTime}
                 duration={duration}
                 onDateChange={setSelectedDate}
-                onTimeChange={setSelectedTime}
+                onTimeChange={(t) => {
+                  setSelectedTime(t);
+                  // If a previously-chosen (longer) duration would now run past
+                  // close with this later start, pull it back so the booking
+                  // always ends by closing time.
+                  const closeMin = toMinutes(closeTimeForDate(selectedDate, hours));
+                  const startMin = toMinutes(t);
+                  if (!Number.isNaN(closeMin) && !Number.isNaN(startMin) &&
+                      startMin + duration * 60 > closeMin) {
+                    const maxDur = Math.floor(((closeMin - startMin) / 60) * 2) / 2;
+                    setDuration(maxDur >= 1 ? maxDur : 1);
+                  }
+                }}
                 onDurationChange={setDuration}
                 onSearch={handleSearch}
                 hours={hours}
