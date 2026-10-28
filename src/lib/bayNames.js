@@ -54,7 +54,19 @@ export const getBayBaseName = (name) => BASE_MAP[name] || name || "";
 
 // Display name shown to users. Applies the Vadnais Heights relabeling; every
 // other location keeps the default "Bay N" labels.
+//
+// A confirmation can summarize several bays as a single comma-joined string
+// (e.g. an admin manual booking that covers multiple bays in one email). Map
+// each bay independently so every one gets the correct per-location label.
+// Single-name callers (every other call site) have no comma and skip this
+// branch unchanged.
 export const getBayDisplayName = (name, location) => {
+  if (typeof name === "string" && name.includes(",")) {
+    return name
+      .split(",")
+      .map((part) => getBayDisplayName(part.trim(), location))
+      .join(", ");
+  }
   const base = getBayBaseName(name);
   if (location === "vadnais_heights") return VADNAIS_OVERRIDE[base] || base;
   return base;

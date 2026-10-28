@@ -458,8 +458,14 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       // booked customer never silently goes without a confirmation email.
       let emailFailed = false;
       if (firstSessionBookings.length > 0) {
+        // Store the RAW bay name(s) here, exactly like the booking row and the
+        // online path. sendBookingConfirmation runs simulator_name through
+        // getBayDisplayName itself, so passing an already-display-mapped name
+        // would translate it a SECOND time (e.g. Vadnais "Bay 8" -> "West 2" ->
+        // "East 2"), showing the customer the wrong bay. Raw names map exactly
+        // once; getBayDisplayName splits this comma list for multi-bay sessions.
         const bayNames = firstSessionBookings
-          .map(({ bay }) => getBayDisplayName(bay.name, location))
+          .map(({ bay }) => bay.name)
           .join(", ");
         const sessionCost = firstSessionBookings.reduce((sum, b) => sum + b.cost, 0);
         const confirmationData = {
