@@ -23,6 +23,7 @@ import MyLessons from './pages/MyLessons';
 import AdminHours from './pages/AdminHours';
 import Customers from './pages/Customers';
 import Admin from './pages/Admin';
+import AdminLogin from './pages/AdminLogin';
 import LessonSchedulePro from './pages/LessonSchedulePro';
 // Add page imports here
 
@@ -35,14 +36,31 @@ const Spinner = () => (
 // Gate admin pages on the auth context (which loads the session reliably) so an
 // admin is never denied during the brief window before their role resolves.
 const AdminRoute = ({ children }) => {
-  const { isLoadingAuth, profileLoaded, isAdmin } = useAuth();
+  const { isLoadingAuth, profileLoaded, isAdmin, logout } = useAuth();
   if (isLoadingAuth || !profileLoaded) return <Spinner />;
   if (!isAdmin) {
     return (
       <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="max-w-md text-center bg-white rounded-xl shadow p-8">
-          <h2 className="text-2xl font-bold text-red-600 mb-2">Access Denied</h2>
-          <p className="text-slate-600">Admin privileges required to access this page.</p>
+        <div className="max-w-md text-center bg-white rounded-xl shadow p-8 space-y-4">
+          <h2 className="text-2xl font-bold text-red-600">Access Denied</h2>
+          <p className="text-slate-600">
+            This account doesn’t have admin access. Sign out and sign back in with a
+            staff/admin account.
+          </p>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={logout}
+              className="px-4 py-2 rounded-lg bg-[#2d5567] text-white font-semibold hover:bg-[#1e3a47]"
+            >
+              Sign out
+            </button>
+            <a
+              href="/admin"
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50"
+            >
+              Admin sign-in
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -81,6 +99,10 @@ const AuthenticatedApp = () => {
         <Route path="/Login" element={<Login />} />
         <Route path="/Signup" element={<Signup />} />
         <Route path="/ResetPassword" element={<ResetPassword />} />
+        {/* Dedicated staff/admin entrance — shows an admin sign-in instead of
+            bouncing to the customer booking screen. Both cases accepted. */}
+        <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/Admin" element={<AdminLogin />} />
         <Route path="*" element={<Navigate to="/Login" replace />} />
       </Routes>
     );
@@ -117,6 +139,9 @@ const AuthenticatedApp = () => {
       <Route path="/AdminHours" element={<AdminRoute><AdminHours /></AdminRoute>} />
       <Route path="/Customers" element={<AdminRoute><Customers /></AdminRoute>} />
       <Route path="/Admin" element={<AdminRoute><Admin /></AdminRoute>} />
+      {/* Lowercase alias: an admin lands on the hub, a signed-in non-admin
+          sees the staff-area sign-out, matching the /admin entrance. */}
+      <Route path="/admin" element={<AdminLogin />} />
       <Route path="/LessonSchedule" element={<LessonProRoute><LessonSchedulePro /></LessonProRoute>} />
       <Route path="/ResetPassword" element={<ResetPassword />} />
       <Route path="/Login" element={<Navigate to="/" replace />} />
