@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Shield, MapPin, Clock, Users, ChevronRight } from "lucide-react";
+import MemberActivationPanel from "@/components/admin/MemberActivationPanel";
 
 // Central admin landing page. Gives staff one memorable destination (/Admin)
 // that links out to every admin tool, instead of hunting through the sidebar.
@@ -72,6 +73,10 @@ export default function Admin() {
               </Card>
             </Link>
           ))}
+        </div>
+
+        <div className="mt-6">
+          <MemberActivationPanel />
         </div>
       </div>
     </div>
