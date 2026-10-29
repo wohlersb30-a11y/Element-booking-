@@ -181,7 +181,7 @@ Deno.serve(async (req) => {
         const result = await sendEmail({
           from_name: 'Element Indoor Golf',
           to: r.email,
-          subject: 'Set your password — Element Indoor Golf has a new booking system',
+          subject: 'Member Booking Access — Set Your Password',
           body: activationEmailHtml(r.name, actionLink)
         });
         if (result.error) {
