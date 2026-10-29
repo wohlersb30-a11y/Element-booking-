@@ -56,9 +56,8 @@ Deno.serve(async (req) => {
 
     const { data: bay } = await db.from('simulators').select('*').eq('id', simulatorId).single();
     if (!bay) return json({ success: false, error: 'Bay not found.' });
-    if (bay.location !== membership.location) {
-      return json({ success: false, error: 'You can only book bays at your home location.' });
-    }
+    // Members may book at EITHER location (club policy). The booking's location
+    // follows the chosen BAY, not the membership's home location.
 
     const startMin = timeToMinutes(startTime);
     const endMin = timeToMinutes(endTime);
@@ -107,7 +106,7 @@ Deno.serve(async (req) => {
         member_name: membership.user_name || user.email,
         simulator_id: bay.id,
         simulator_name: bay.name,
-        location: membership.location,
+        location: bay.location,
         booking_date: bookingDate,
         start_time: startTime,
         end_time: endTime,

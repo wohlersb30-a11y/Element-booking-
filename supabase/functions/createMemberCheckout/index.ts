@@ -61,11 +61,12 @@ Deno.serve(async (req) => {
     const plan = getPlan(membership.membership_level);
     if (!plan) return json({ error: 'Unknown membership tier.' }, { status: 400 });
 
+    // Members may book at EITHER club (policy). Everything location-dependent
+    // below — the stored booking location, MN sales tax, and which Stripe
+    // account holds the funds — follows the chosen BAY's location, not the
+    // membership's home location.
     const { data: bay } = await db.from('simulators').select('*').eq('id', simulatorId).single();
     if (!bay) return json({ error: 'Bay not found.' }, { status: 404 });
-    if (bay.location !== membership.location) {
-      return json({ error: 'You can only book bays at your home location.' }, { status: 400 });
-    }
 
     const startMin = timeToMinutes(startTime);
     const endMin = timeToMinutes(endTime);
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
       memberName: membership.user_name || user.email,
       simulatorId: bay.id,
       simulatorName: bay.name,
-      location: membership.location,
+      location: bay.location,
       date: bookingDate,
       startTime,
       endTime,
@@ -117,9 +118,9 @@ Deno.serve(async (req) => {
 
     // Minnesota sales tax on the discounted prime rate, shown as a separate
     // line item so the member sees the breakdown before authorizing the hold.
-    const { rate, tax } = computeTax(cov.totalCost, membership.location);
+    const { rate, tax } = computeTax(cov.totalCost, bay.location);
 
-    const stripe = stripeForLocation(membership.location);
+    const stripe = stripeForLocation(bay.location);
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [

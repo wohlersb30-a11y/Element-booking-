@@ -92,9 +92,13 @@ export default function MemberBookings() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
   const [membership, setMembership] = useState(null);
-  // The bookable window (half-hour steps) follows the member's home location's
+  // Members may book at EITHER club. `selectedLocation` is the club they're
+  // currently booking at (defaults to their home location); it drives which
+  // bays, schedule blocks, and operating hours load.
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  // The bookable window (half-hour steps) follows the selected location's
   // operating hours; defaults to 9 AM–11 PM when no override is saved.
-  const locationHours = useLocationHours(membership?.location);
+  const locationHours = useLocationHours(selectedLocation || membership?.location);
   const ALL_TIME_SLOTS = buildStartOptions(locationHours.open, locationHours.close, 30);
   const [allBays, setAllBays] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
@@ -116,6 +120,13 @@ export default function MemberBookings() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Reload the bays + admin schedule blocks whenever the chosen club changes
+  // (members can book at either location).
+  useEffect(() => {
+    if (!selectedLocation) return;
+    loadLocationData(selectedLocation);
+  }, [selectedLocation]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -139,24 +150,47 @@ export default function MemberBookings() {
       }
       setMembership(active);
 
-      const [bays, regularBookings, memBookings, blocks] = await Promise.all([
-        base44.entities.Simulator.filter({ location: active.location, is_active: true }),
+      const [regularBookings, memBookings] = await Promise.all([
         base44.entities.Booking.list(),
         // Shared pool: usage is tracked per membership_id (covers corporate
         // multi-seat too), NOT per member email.
-        base44.entities.MemberBooking.filter({ membership_id: active.id }),
-        // Admin schedule blocks (leagues/maintenance/events) also make bays
-        // unavailable to members.
-        base44.entities.ScheduleBlock.filter({ location: active.location }).catch(() => [])
+        base44.entities.MemberBooking.filter({ membership_id: active.id })
       ]);
-      setAllBays(bays);
       setAllBookings(regularBookings);
       setMemberBookings(memBookings);
-      setAllBlocks(blocks || []);
+
+      // Default the booking club to the member's home location the first time;
+      // the location effect loads that club's bays + blocks. On a post-booking
+      // refresh keep whatever club they're currently viewing.
+      setSelectedLocation((prev) => prev || active.location);
     } catch (error) {
       console.error("Error loading data:", error);
     }
     setIsLoading(false);
+  };
+
+  // Load the bays + schedule blocks for one club. Admin schedule blocks
+  // (leagues/maintenance/events) make bays unavailable to members too.
+  const loadLocationData = async (loc) => {
+    try {
+      const [bays, blocks] = await Promise.all([
+        base44.entities.Simulator.filter({ location: loc, is_active: true }),
+        base44.entities.ScheduleBlock.filter({ location: loc }).catch(() => [])
+      ]);
+      setAllBays(bays);
+      setAllBlocks(blocks || []);
+    } catch (error) {
+      console.error("Error loading location data:", error);
+    }
+  };
+
+  // Switch the club being booked. Bays differ per club, so clear any in-progress
+  // search/selection; the location effect reloads bays + blocks.
+  const changeLocation = (loc) => {
+    if (loc === selectedLocation) return;
+    setSelectedLocation(loc);
+    setSelectedBay("");
+    setAvailableBays([]);
   };
 
   const plan = membership ? getPlan(membership.membership_level) : null;
@@ -304,7 +338,7 @@ export default function MemberBookings() {
       if (d.needsPrimeConfirmation) {
         const { tax: primeTax, total: primeTotal } = computeTax(
           Number(d.totalCost),
-          membership.location
+          selectedLocation || membership.location
         );
         const ok = window.confirm(
           `${d.error}\n\nReserve as prime time for $${Number(d.totalCost).toFixed(
@@ -413,12 +447,34 @@ export default function MemberBookings() {
             </Card>
             <Card className="border-2 border-slate-200">
               <CardContent className="p-5">
-                <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
-                  <MapPin className="w-4 h-4" /> Home location
+                <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
+                  <MapPin className="w-4 h-4" /> Booking location
                 </div>
-                <p className="text-lg font-bold text-slate-700 mt-2">
-                  {membership.location === "vadnais_heights" ? "Vadnais Heights" : "Burnsville"}
-                </p>
+                <div className="flex gap-2">
+                  {["vadnais_heights", "burnsville"].map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => changeLocation(loc)}
+                      className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition-colors ${
+                        selectedLocation === loc
+                          ? "border-[#2d5567] bg-[#2d5567] text-white"
+                          : "border-slate-200 text-slate-600 hover:border-[#2d5567]/40"
+                      }`}
+                    >
+                      {loc === "vadnais_heights" ? "Vadnais Heights" : "Burnsville"}
+                      {membership.location === loc && (
+                        <span
+                          className={`block text-[10px] font-normal ${
+                            selectedLocation === loc ? "text-blue-100" : "text-slate-400"
+                          }`}
+                        >
+                          Home club
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </div>
