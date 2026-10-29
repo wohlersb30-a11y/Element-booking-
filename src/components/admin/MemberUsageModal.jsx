@@ -116,7 +116,7 @@ export default function MemberUsageModal({ member, onClose }) {
       title: "Prime time — not included in membership",
       detail:
         Number(member.total_cost) > 0
-          ? `Member rate (${discountPct}% off): $${Number(member.total_cost).toFixed(2)} + MN tax. A card hold was placed online — capture it at check-in.`
+          ? `Member rate (${discountPct}% off): $${Number(member.total_cost).toFixed(2)} + MN tax — added to the member's monthly bill.`
           : "This slot is outside the member's included hours/window and is billed as prime time."
     });
   }

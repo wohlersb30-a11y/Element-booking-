@@ -50,11 +50,22 @@ export default function TimeSelectionForm({
   // step every half hour from open up to (but not including) close.
   const closeTime = closeTimeForDate(selectedDate, hours);
   const closeMinutes = toMinutes(closeTime);
+  // When the selected date is today, drop start times that have already
+  // elapsed so a customer can't book a slot in the past.
+  const now = new Date();
+  const isToday =
+    !!selectedDate &&
+    selectedDate.getFullYear() === now.getFullYear() &&
+    selectedDate.getMonth() === now.getMonth() &&
+    selectedDate.getDate() === now.getDate();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
   // Start options step every half hour from open, but only up to the latest
   // start whose shortest session (1 hour) still ends by close — so a booking
-  // can never run past closing time.
+  // can never run past closing time — and never a start that's already passed.
   const timeSlots = buildStartOptions(hours.open, closeTime, 30).filter(
-    (s) => toMinutes(s.value) + MIN_DURATION_HOURS * 60 <= closeMinutes
+    (s) =>
+      toMinutes(s.value) + MIN_DURATION_HOURS * 60 <= closeMinutes &&
+      (!isToday || toMinutes(s.value) > nowMinutes)
   );
 
   const getAvailableDurations = () => {

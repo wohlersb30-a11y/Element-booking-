@@ -8,10 +8,12 @@ import {
   evaluateCoverage
 } from '../_shared/memberCore.ts';
 
-// Authoritative member-booking creation for INCLUDED (free) sessions. Prime /
-// paid sessions are routed to createMemberCheckout (Stripe hold) instead. The
-// server — not the browser — decides included vs prime so hour/guest-pass limits
-// can't be bypassed.
+// Authoritative member-booking creation. The server — not the browser —
+// decides included vs prime so hour/guest-pass limits can't be bypassed.
+// Members are billed MONTHLY, so there is NO card authorization: included
+// sessions are free, and prime / over-allotment sessions are booked at the
+// member rate with the amount recorded as due on the monthly statement (once
+// the client confirms via acceptPrime).
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -82,8 +84,12 @@ Deno.serve(async (req) => {
     const hasGuestPass = !!wantsGuest && usage.passesRemaining > 0;
     const guestChargeDue = !!wantsGuest && usage.passesRemaining <= 0;
 
-    // Prime slots aren't free — send the client to the paid checkout flow.
-    if (!cov.included) {
+    // Prime slots (outside the covered window, or over the included-hours
+    // allotment) aren't free. Members are billed monthly, so there's NO card
+    // authorization: the first call reports the member-rate amount so the client
+    // can confirm, and once confirmed (acceptPrime) we book it and record the
+    // amount as due on the monthly statement.
+    if (!cov.included && !acceptPrime) {
       return json({
         success: false,
         needsPrimeConfirmation: true,
@@ -97,7 +103,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Included, free booking.
+    const isPrime = !cov.included;
+
     const { data: created, error: insErr } = await db
       .from('member_bookings')
       .insert({
@@ -111,14 +118,15 @@ Deno.serve(async (req) => {
         start_time: startTime,
         end_time: endTime,
         duration_hours: Number(durationHours),
-        total_cost: 0,
+        total_cost: isPrime ? cov.totalCost : 0,
         status: 'confirmed',
         check_in_status: 'not_arrived',
-        included: true,
-        is_prime: false,
+        included: !isPrime,
+        is_prime: isPrime,
         guest_pass_used: hasGuestPass,
         guest_charge_due: guestChargeDue,
-        payment_status: 'included',
+        // Prime sim time is added to the member's monthly bill (no card hold).
+        payment_status: isPrime ? 'due' : 'included',
         is_exclusive_hours: false
       })
       .select()
@@ -131,8 +139,9 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       booking: created,
-      included: true,
-      totalCost: 0,
+      included: !isPrime,
+      isPrime,
+      totalCost: isPrime ? cov.totalCost : 0,
       guestChargeDue,
       hoursRemaining: Math.max(0, usage.hoursRemaining - Number(durationHours)),
       passesRemaining: Math.max(0, usage.passesRemaining - (hasGuestPass ? 1 : 0))

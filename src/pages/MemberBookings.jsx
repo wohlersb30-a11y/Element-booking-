@@ -21,7 +21,6 @@ import {
   timeToMinutes
 } from "@/config/membershipPlans";
 import { computeTax } from "@/config/tax";
-import { trackInitiateCheckout } from "@/lib/metaPixel";
 import { useLocationHours, buildStartOptions } from "@/config/hours";
 
 const DURATION_OPTIONS = [
@@ -241,10 +240,17 @@ export default function MemberBookings() {
   };
 
   // Time slots offered for the current date: included ones always; prime ones only
-  // when the member has toggled "show prime hours".
+  // when the member has toggled "show prime hours". When the selected date is
+  // today, start times that have already elapsed are dropped so a member can't
+  // book a slot in the past.
   const offeredSlots = () => {
     if (!selectedDate) return [];
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const isToday = format(selectedDate, "yyyy-MM-dd") === todayStr;
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
     return ALL_TIME_SLOTS.filter((slot) => {
+      if (isToday && timeToMinutes(slot.value) <= nowMin) return false;
       const included = slotIsIncluded(selectedDate, slot.value, duration);
       return included || showPrime;
     }).map((slot) => ({
@@ -281,41 +287,6 @@ export default function MemberBookings() {
     setIsSearching(false);
   };
 
-  // Send the member to Stripe to place an authorization hold for a prime
-  // (non-covered / over-allotment) booking at their member rate.
-  const startPrimeCheckout = async (checkoutValue) => {
-    const dateStr = format(selectedDate, "yyyy-MM-dd");
-    const endTime = calculateEndTime(selectedTime, duration);
-    const origin = window.location.origin;
-    const res = await base44.functions.invoke("createMemberCheckout", {
-      membershipId: membership.id,
-      simulatorId: selectedBay,
-      bookingDate: dateStr,
-      startTime: selectedTime,
-      endTime,
-      durationHours: duration,
-      wantsGuest,
-      successUrl: `${origin}${createPageUrl("PaymentSuccess")}?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}${createPageUrl("MemberBookings")}`
-    });
-    const d = res.data || {};
-    if (d.included) {
-      // Server decided it's actually included — fall back to the free flow.
-      return submitBooking(false);
-    }
-    if (!d.url) {
-      alert(d.error || "Could not start checkout.");
-      setIsSubmitting(false);
-      return;
-    }
-    trackInitiateCheckout({
-      value: typeof checkoutValue === "number" ? checkoutValue : undefined,
-      contentType: "booking",
-      numItems: 1
-    });
-    window.location.href = d.url;
-  };
-
   const submitBooking = async (acceptPrime) => {
     setIsSubmitting(true);
     try {
@@ -333,8 +304,9 @@ export default function MemberBookings() {
       });
       const d = res.data || {};
 
-      // Prime slot: confirm, then route to Stripe for an authorization hold at
-      // the member rate (paid online, not at the desk).
+      // Prime slot: confirm the member-rate amount, then book it directly. No
+      // card hold — members are billed monthly, so the amount is added to their
+      // statement.
       if (d.needsPrimeConfirmation) {
         const { tax: primeTax, total: primeTotal } = computeTax(
           Number(d.totalCost),
@@ -345,13 +317,13 @@ export default function MemberBookings() {
             2
           )} + $${primeTax.toFixed(2)} MN sales tax = $${primeTotal.toFixed(
             2
-          )} (${plan.name} member rate)? You'll place a card hold now — no charge until you check in.`
+          )} (${plan.name} member rate)? This will be added to your monthly bill — no card needed.`
         );
         if (!ok) {
           setIsSubmitting(false);
           return;
         }
-        return startPrimeCheckout(primeTotal);
+        return submitBooking(true);
       }
 
       if (!d.success) {
@@ -360,11 +332,24 @@ export default function MemberBookings() {
         return;
       }
 
-      alert(
-        d.guestChargeDue
-          ? "Booked! This session is included in your membership. 🏌️\n\nYou're out of guest passes this month, so a guest fee will be collected at the front desk."
-          : "Booked! This session is included in your membership. 🏌️"
-      );
+      if (d.isPrime) {
+        const { total: primeTotal } = computeTax(
+          Number(d.totalCost),
+          selectedLocation || membership.location
+        );
+        alert(
+          `Booked as prime time. 🏌️\n\n$${primeTotal.toFixed(2)} (${plan.name} member rate, incl. MN tax) will be added to your monthly bill.` +
+            (d.guestChargeDue
+              ? "\n\nYou're out of guest passes this month, so a guest fee will also be collected at the front desk."
+              : "")
+        );
+      } else {
+        alert(
+          d.guestChargeDue
+            ? "Booked! This session is included in your membership. 🏌️\n\nYou're out of guest passes this month, so a guest fee will be collected at the front desk."
+            : "Booked! This session is included in your membership. 🏌️"
+        );
+      }
       setSelectedDate(null);
       setSelectedTime("");
       setSelectedBay("");
@@ -408,6 +393,12 @@ export default function MemberBookings() {
 
   const slots = offeredSlots();
   const selectedIncluded = selectedDate && selectedTime ? slotIsIncluded(selectedDate, selectedTime, duration) : true;
+  // Is the currently-chosen slot inside one of the plan's covered windows (vs.
+  // over the included-hours allotment)? Used to tailor the prime-time alert.
+  const selectedWithinWindow =
+    plan && selectedDate && selectedTime
+      ? isWithinCoveredWindow(plan, selectedDate, selectedTime, calculateEndTime(selectedTime, duration))
+      : true;
 
   return (
     <div className="min-h-screen p-6 bg-gradient-to-br from-slate-50 via-purple-50/30 to-slate-100">
@@ -552,6 +543,30 @@ export default function MemberBookings() {
               <CardTitle>New Booking</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Usage at a glance — stays visible while booking so the member
+                  can see what's left before they pick a time. */}
+              <div className="rounded-xl border bg-slate-50 p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-1.5 text-slate-600">
+                    <Clock className="w-4 h-4 text-[#2d5567]" />
+                    <strong className={hoursRemaining <= 0 ? "text-rose-600" : "text-slate-800"}>
+                      {hoursRemaining}
+                    </strong>
+                    / {plan.hours} hrs left {periodLabel}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-slate-600">
+                    <Ticket className="w-4 h-4 text-purple-600" />
+                    <strong className={passesRemaining <= 0 ? "text-rose-600" : "text-slate-800"}>
+                      {passesRemaining}
+                    </strong>
+                    / {plan.guestPasses} guest passes
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  Included hours: {describeWindows(plan)}
+                </p>
+              </div>
+
               <div>
                 <Label className="mb-2 block">Select Date</Label>
                 <CalendarComponent
@@ -632,8 +647,12 @@ export default function MemberBookings() {
                 <Alert className="bg-amber-50 border-amber-200">
                   <AlertCircle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="text-amber-800 text-sm">
-                    <strong>Prime time.</strong> This slot isn't covered by your membership hours. You can still book it at
-                    your {plan.name} member rate ({Math.round((plan.discount || 0) * 100)}% off), paid at the front desk.
+                    <strong>Heads up — prime time.</strong>{" "}
+                    {!selectedWithinWindow
+                      ? "This time is outside your included member hours."
+                      : `You've used all ${plan.hours} of your included hours ${periodLabel}.`}{" "}
+                    You can still book it at your {plan.name} member rate (
+                    {Math.round((plan.discount || 0) * 100)}% off) — the amount is added to your monthly bill.
                   </AlertDescription>
                 </Alert>
               )}
