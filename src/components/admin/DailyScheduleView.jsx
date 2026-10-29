@@ -6,6 +6,7 @@ import { Booking } from "@/entities/Booking";
 import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
 import { useLocationHours, toMinutes, closeTimeForDate } from "@/config/hours";
 import { getBayDisplayName } from "@/lib/bayNames";
+import MemberUsageModal from "./MemberUsageModal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -147,6 +148,10 @@ export default function DailyScheduleView({
   const startHour = Math.floor(toMinutes(openTime) / 60);
   const endHour = Math.floor(toMinutes(closeTime) / 60);
   const TIME_SLOTS = buildHourColumns(openTime, closeTime);
+
+  // Clicking a member reservation opens a staff popup with that member's hour +
+  // guest-pass usage and any amount to collect at the desk.
+  const [usageMember, setUsageMember] = useState(null);
 
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
   const [pendingMove, setPendingMove] = useState(null);
@@ -666,7 +671,13 @@ export default function DailyScheduleView({
                                             style={{ width: `${span * HOUR_WIDTH}px`, minWidth: `${span * HOUR_WIDTH}px`, position: 'relative' }}
                                             className={`min-h-[60px] ${isHourMark ? 'border-l-2 border-l-slate-400' : ''}`}
                                           >
-                                            <div className="absolute inset-0 border-r border-b">{blockInner}</div>
+                                            <div
+                                              className="absolute inset-0 border-r border-b cursor-pointer"
+                                              onClick={() => setUsageMember(booking)}
+                                              title="Click to see this member's hours & guest-pass usage"
+                                            >
+                                              {blockInner}
+                                            </div>
                                           </div>
                                         );
                                       }
@@ -802,6 +813,10 @@ export default function DailyScheduleView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {usageMember && (
+        <MemberUsageModal member={usageMember} onClose={() => setUsageMember(null)} />
+      )}
     </>
   );
 }

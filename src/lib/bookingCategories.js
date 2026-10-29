@@ -21,7 +21,7 @@ export const BOOKING_CATEGORIES = [
     key: "member",
     label: "Member",
     dot: "bg-purple-500",
-    block: "bg-purple-500 text-white",
+    block: "bg-purple-500 hover:bg-purple-600 text-white",
     border: "border-purple-700"
   },
   {
