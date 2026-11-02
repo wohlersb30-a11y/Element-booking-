@@ -12,6 +12,7 @@ import CheckInSystem from "./CheckInSystem";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocationHours, closeTimeForDate } from "@/config/hours";
 import { getBayDisplayName } from "@/lib/bayNames";
+import { RESERVATION_TYPE_OPTIONS } from "@/lib/bookingCategories";
 
 const formatTime = (time24) => {
   if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
@@ -56,6 +57,11 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   const [startTime, setStartTime] = useState(booking.start_time || "");
   const [durationHours, setDurationHours] = useState(Number(booking.duration_hours) || 1);
   const [isSavingTime, setIsSavingTime] = useState(false);
+  // The current color/category of this reservation (public / member / special /
+  // banked). classifyBooking uses reservation_type for regular bookings, so an
+  // admin can correct a mis-tagged row (e.g. a non-member wrongly shown purple).
+  const [reservationType, setReservationType] = useState(booking.reservation_type || "public");
+  const [isSavingType, setIsSavingType] = useState(false);
 
   // Operating hours for this booking's location, used to bound the editable
   // start-time / duration options and to validate the new window.
@@ -121,6 +127,19 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
       alert("Error updating the reservation time. Please try again.");
     }
     setIsSavingTime(false);
+  };
+
+  const handleUpdateReservationType = async () => {
+    setIsSavingType(true);
+    try {
+      await Booking.update(booking.id, { reservation_type: reservationType });
+      alert("Reservation type updated. The tee-sheet color will reflect this change.");
+      onClose();
+    } catch (error) {
+      console.error("Error updating reservation type:", error);
+      alert("Error updating the reservation type. Please try again.");
+    }
+    setIsSavingType(false);
   };
 
   // A capturable hold exists when the booking has a Stripe payment id and hasn't
@@ -408,6 +427,43 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                 </div>
                 <p className="text-xs text-slate-500">
                   New window: {formatTime(startTime)} – {formatTime(proposedEnd)}
+                </p>
+              </div>
+            )}
+
+            {/* Change the reservation type (drives the tee-sheet color). Lets an
+                admin correct a mis-tagged booking — e.g. a non-member that was
+                saved as "Member" and shows purple. */}
+            {booking.status !== "cancelled" && (
+              <div className="mt-4 p-3 bg-slate-50 rounded-lg space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Reservation Type</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={reservationType} onValueChange={setReservationType}>
+                    <SelectTrigger className="w-44">
+                      <SelectValue placeholder="Choose type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RESERVATION_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {reservationType !== (booking.reservation_type || "public") && (
+                    <Button
+                      size="sm"
+                      onClick={handleUpdateReservationType}
+                      disabled={isSavingType}
+                      className="bg-[#2d5567] hover:bg-[#1e3a47]"
+                    >
+                      {isSavingType ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Type"}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
+                  Controls the color on the daily schedule (Public = blue, Member = purple,
+                  Special = orange, Banked = teal).
                 </p>
               </div>
             )}
