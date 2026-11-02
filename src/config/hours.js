@@ -77,14 +77,16 @@ export const buildStartOptions = (open, close, stepMin = 60) => {
   return out;
 };
 
-// Whole "HH:00" options between two bounds (inclusive), used to populate the
-// open/close pickers in the admin editor.
-export const buildHourChoices = (from, to) => {
+// Time options between two bounds (both inclusive), stepping every `stepMin`
+// minutes. Defaults to whole hours for the open/close pickers in the admin
+// editor; pass stepMin: 30 (e.g. the block form) to allow half-hour times.
+export const buildHourChoices = (from, to, stepMin = 60) => {
   const out = [];
   const start = toMinutes(from);
   const end = toMinutes(to);
-  for (let m = start; m <= end; m += 60) {
-    const value = `${String(Math.floor(m / 60)).padStart(2, '0')}:00`;
+  if (Number.isNaN(start) || Number.isNaN(end)) return out;
+  for (let m = start; m <= end; m += stepMin) {
+    const value = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     out.push({ value, label: formatHourLabel(value) });
   }
   return out;

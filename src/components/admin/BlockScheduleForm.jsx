@@ -45,7 +45,8 @@ export default function BlockScheduleForm({ simulators, onClose, onComplete, ini
   // Block times follow the location's operating hours so a "full day" block
   // covers the whole open→close window (including any extended early/late hours).
   const hours = useLocationHours(location);
-  const TIME_SLOTS = buildHourChoices(hours.open, hours.close);
+  // Half-hour increments so blocks can start/end on the :30 as well as the hour.
+  const TIME_SLOTS = buildHourChoices(hours.open, hours.close, 30);
   // Day bounds used to fill whole days: the first day of a span runs from the
   // chosen start time to close, interior days are fully blocked (open→close),
   // and the last day runs from open to the chosen end time.

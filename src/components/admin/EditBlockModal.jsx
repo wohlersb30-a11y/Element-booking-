@@ -21,7 +21,8 @@ const prettyDate = (d) => {
 // tweak the time / reason / notes without deleting and recreating it.
 export default function EditBlockModal({ block, simulators = [], location, onClose, onComplete }) {
   const hours = useLocationHours(location);
-  const TIME_SLOTS = buildHourChoices(hours.open, hours.close);
+  // Half-hour increments, matching the block-creation form.
+  const TIME_SLOTS = buildHourChoices(hours.open, hours.close, 30);
 
   const [startTime, setStartTime] = useState(block.start_time || "");
   const [endTime, setEndTime] = useState(block.end_time || "");
