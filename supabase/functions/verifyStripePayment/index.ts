@@ -8,8 +8,14 @@ Deno.serve(async (req) => {
   if (pre) return pre;
 
   try {
+    // The caller's session is NOT required to finalize a paid checkout: the
+    // booking's owner comes from session.metadata.customerId (set at checkout),
+    // and this endpoint only turns an already-paid Stripe session into booking
+    // rows (idempotent, same as the webhook). Previously a lapsed login here
+    // returned 401, so a customer who had just paid landed on the "Something
+    // Went Wrong — Unauthorized" screen even though the charge/hold succeeded.
+    // We still read the user when present, purely as a fallback owner id.
     const user = await getUser(req);
-    if (!user) return json({ error: 'Unauthorized' }, { status: 401 });
 
     const { sessionId, location } = await req.json();
     if (!sessionId) return json({ success: false, error: 'No session ID provided' });
@@ -21,7 +27,7 @@ Deno.serve(async (req) => {
     const db = serviceClient();
     const result = await finalizeBookingFromSession(stripe, session, {
       db,
-      fallbackUserId: user.id
+      fallbackUserId: user?.id
     });
 
     if (!result.success) {
