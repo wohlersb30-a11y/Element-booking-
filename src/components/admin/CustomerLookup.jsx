@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Booking } from "@/entities/all";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, X, Calendar, Phone, Mail, MapPin, Loader2 } from "lucide-react";
+import { createPageUrl } from "@/utils";
 import { format } from "date-fns";
 
 const formatTime = (time24) => {
@@ -30,6 +32,18 @@ const fmtPhone = (p) => {
 const DIRECTORY_LIMIT = 50;
 
 export default function CustomerLookup({ onClose, onBookingSelect }) {
+  const navigate = useNavigate();
+  // Close the lookup modal and open the full customer profile. The booking
+  // groups only know the email; directory rows carry the customers.id.
+  const goToProfile = ({ id, email } = {}) => {
+    const q = id
+      ? `id=${id}`
+      : `email=${encodeURIComponent((email || "").trim().toLowerCase())}`;
+    if (!id && !email) return;
+    if (onClose) onClose();
+    navigate(`${createPageUrl("CustomerProfile")}?${q}`);
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [debounced, setDebounced] = useState("");
   const [bookings, setBookings] = useState([]);
@@ -188,7 +202,14 @@ export default function CustomerLookup({ onClose, onBookingSelect }) {
               <CardContent className="p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h3 className="font-bold text-lg text-slate-800">{group.customer.name}</h3>
+                    <button
+                      type="button"
+                      onClick={() => goToProfile({ email: group.customer.email })}
+                      className="font-bold text-lg text-[#2d5567] hover:underline text-left"
+                      title="View customer profile"
+                    >
+                      {group.customer.name}
+                    </button>
                     <div className="flex items-center gap-2 text-sm text-slate-600 mt-1">
                       <Mail className="w-4 h-4" />
                       <span>{group.customer.email}</span>
@@ -259,9 +280,14 @@ export default function CustomerLookup({ onClose, onBookingSelect }) {
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className="font-bold text-lg text-slate-800">
-                          {c.full_name || <span className="text-slate-400">—</span>}
-                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => goToProfile({ id: c.id, email: c.email })}
+                          className="font-bold text-lg text-[#2d5567] hover:underline text-left"
+                          title="View customer profile"
+                        >
+                          {c.full_name || "—"}
+                        </button>
                         {c.email && (
                           <a
                             href={`mailto:${c.email}`}
