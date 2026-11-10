@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Users, Search, Loader2, Mail, Phone, ChevronLeft, ChevronRight } from "lucide-react";
+import { createPageUrl } from "@/utils";
+import { Users, Search, Loader2, Mail, Phone, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon } from "lucide-react";
 
 const PAGE_SIZE = 50;
 
@@ -16,6 +18,7 @@ function fmtPhone(p) {
 }
 
 export default function Customers() {
+  const navigate = useNavigate();
   const [term, setTerm] = useState("");
   const [debounced, setDebounced] = useState("");
   const [page, setPage] = useState(0);
@@ -129,13 +132,23 @@ export default function Customers() {
                 {rows.map((c) => (
                   <div
                     key={c.id}
-                    className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3 hover:bg-slate-50"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate(`${createPageUrl("CustomerProfile")}?id=${c.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate(`${createPageUrl("CustomerProfile")}?id=${c.id}`);
+                      }
+                    }}
+                    className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3 hover:bg-slate-50 cursor-pointer"
                   >
                     <div className="font-semibold text-slate-800 sm:w-56 truncate">
                       {c.full_name || <span className="text-slate-400">—</span>}
                     </div>
                     <a
                       href={`mailto:${c.email}`}
+                      onClick={(e) => e.stopPropagation()}
                       className="flex items-center gap-2 text-sm text-[#2d5567] hover:underline sm:flex-1 truncate"
                     >
                       <Mail className="w-3.5 h-3.5 shrink-0" />
@@ -143,11 +156,13 @@ export default function Customers() {
                     </a>
                     <a
                       href={`tel:${c.phone}`}
+                      onClick={(e) => e.stopPropagation()}
                       className="flex items-center gap-2 text-sm text-slate-600 hover:underline sm:w-40"
                     >
                       <Phone className="w-3.5 h-3.5 shrink-0" />
                       {fmtPhone(c.phone) || <span className="text-slate-400">—</span>}
                     </a>
+                    <ChevronRightIcon className="hidden sm:block w-4 h-4 text-slate-300 shrink-0" />
                   </div>
                 ))}
               </div>

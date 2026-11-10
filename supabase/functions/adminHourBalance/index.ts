@@ -58,9 +58,19 @@ Deno.serve(async (req) => {
       const kind = body.kind === 'peak' ? 'peak' : 'off_peak';
       const hours = Number(body.hours);
       const location = body.location || null;
+      // Employee signature is REQUIRED for every manual add/remove so there is a
+      // named person on the hook for the adjustment (the admin login may be
+      // shared at the front desk). Stored in the ledger note alongside the
+      // admin's auth email + timestamp for a full audit trail.
+      const signature = String(body.signature || '').trim();
       if (!email || !hours || Number.isNaN(hours)) {
         return json({ error: 'Email, kind, non-zero hours required.' }, { status: 400 });
       }
+      if (!signature) {
+        return json({ error: 'Employee signature is required to adjust banked hours.' }, { status: 400 });
+      }
+      const baseNote = body.note ? String(body.note).trim() : '';
+      const note = `${baseNote ? baseNote + ' · ' : ''}Signed by: ${signature} (via ${user.email})`;
       const { error } = await db.from('hour_transactions').insert({
         user_email: email,
         kind,
@@ -68,10 +78,18 @@ Deno.serve(async (req) => {
         reason: 'adjustment',
         location,
         created_by: user.email,
-        note: body.note || `Admin adjustment by ${user.email}`
+        note
       });
       if (error) throw error;
-      return json({ success: true, balance: await balanceFor(email) });
+      // Return both the per-location balance AND the combined pool total so the
+      // customer profile can refresh its header without a second lookup.
+      const balance = await balanceFor(email);
+      const total = { peak: 0, off_peak: 0 };
+      for (const b of Object.values(balance)) {
+        total.peak += Number(b.peak || 0);
+        total.off_peak += Number(b.off_peak || 0);
+      }
+      return json({ success: true, balance, total });
     }
 
     if (action === 'import') {

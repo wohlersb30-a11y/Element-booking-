@@ -162,6 +162,10 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
   const usingBanked = formData.payment_method === "banked_hours";
   const [bankedPreview, setBankedPreview] = useState(null);
   const [bankedPreviewLoading, setBankedPreviewLoading] = useState(false);
+  // Whether the entered customer has ANY banked hours on file. The "Redeem
+  // banked hours" payment option is only offered when this is true — customers
+  // with no prepaid hours shouldn't see it.
+  const [customerHasBankedHours, setCustomerHasBankedHours] = useState(false);
 
   // --- Customer autocomplete (search the imported customer directory) ---
   // As the admin types a name (or email/phone) into the Customer Name box, we
@@ -350,6 +354,40 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       clearTimeout(t);
     };
   }, [usingBanked, formData.customer_email, formData.booking_date, formData.start_time, formData.duration_hours, location]);
+
+  // Does this customer have ANY banked hours? Drives whether the "Redeem banked
+  // hours" option is even offered. If they have none and it was somehow
+  // selected, fall back to "Pay at venue".
+  useEffect(() => {
+    const email = (formData.customer_email || "").trim();
+    if (!email) {
+      setCustomerHasBankedHours(false);
+      return;
+    }
+    let active = true;
+    const t = setTimeout(async () => {
+      try {
+        const result = await base44.functions.invoke("adminHourBalance", { action: "lookup", email });
+        const d = result?.data;
+        const tot = d?.total || { peak: 0, off_peak: 0 };
+        const has = d?.success && (Number(tot.peak || 0) + Number(tot.off_peak || 0)) > 0;
+        if (active) setCustomerHasBankedHours(!!has);
+      } catch {
+        if (active) setCustomerHasBankedHours(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [formData.customer_email]);
+
+  // If the chosen customer has no banked hours, never leave "banked" selected.
+  useEffect(() => {
+    if (usingBanked && !customerHasBankedHours) {
+      setFormData((prev) => ({ ...prev, payment_method: "pay_at_venue" }));
+    }
+  }, [usingBanked, customerHasBankedHours]);
 
   // Toggle a bay in/out of the multi-bay selection.
   const toggleBay = (id) => {
@@ -929,9 +967,16 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="pay_at_venue">Pay at venue</SelectItem>
-              <SelectItem value="banked_hours">Redeem banked hours</SelectItem>
+              {customerHasBankedHours && (
+                <SelectItem value="banked_hours">Redeem banked hours</SelectItem>
+              )}
             </SelectContent>
           </Select>
+          {formData.customer_email && !customerHasBankedHours && (
+            <p className="text-xs text-slate-400">
+              This customer has no banked hours on file.
+            </p>
+          )}
         </div>
 
         {/* Banked-hours balance preview for the first session. */}

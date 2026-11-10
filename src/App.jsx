@@ -22,6 +22,7 @@ import Lessons from './pages/Lessons';
 import MyLessons from './pages/MyLessons';
 import AdminHours from './pages/AdminHours';
 import Customers from './pages/Customers';
+import CustomerProfile from './pages/CustomerProfile';
 import Admin from './pages/Admin';
 import AdminLogin from './pages/AdminLogin';
 import LessonSchedulePro from './pages/LessonSchedulePro';
@@ -138,6 +139,7 @@ const AuthenticatedApp = () => {
       <Route path="/MyLessons" element={<MyLessons />} />
       <Route path="/AdminHours" element={<AdminRoute><AdminHours /></AdminRoute>} />
       <Route path="/Customers" element={<AdminRoute><Customers /></AdminRoute>} />
+      <Route path="/CustomerProfile" element={<AdminRoute><CustomerProfile /></AdminRoute>} />
       <Route path="/Admin" element={<AdminRoute><Admin /></AdminRoute>} />
       {/* Lowercase alias: an admin lands on the hub, a signed-in non-admin
           sees the staff-area sign-out, matching the /admin entrance. */}
