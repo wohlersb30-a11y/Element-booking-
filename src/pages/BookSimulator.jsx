@@ -311,8 +311,10 @@ export default function BookSimulator() {
     : null;
 
   // Can the single selected bay's booking be fully covered by banked hours?
+  // VIP suites cannot be booked with banked hours — standard bays only.
   const bankedEligible = (() => {
     if (selectedBays.length !== 1) return false;
+    if (isVIPBay(selectedBays[0]?.bay || {})) return false;
     if (!selectedDate || !(bookingTime || selectedTime)) return false;
     const t = bookingTime || selectedTime;
     const peak = isPeakSlot(format(selectedDate, "yyyy-MM-dd"), t);
@@ -1138,10 +1140,7 @@ export default function BookSimulator() {
                               {Math.max(0, bankedBalance.peak)} peak · {Math.max(0, bankedBalance.off_peak)} off-peak
                             </p>
                             <p className="text-xs text-teal-800 mt-1">
-                              Use {duration} hour{duration !== 1 ? "s" : ""} for this booking — no card hold needed
-                              {selectedBays[0]?.bay?.bay_type === "vip"
-                                ? " (VIP suite adds a per-hour surcharge to your card)."
-                                : "."}
+                              Use {duration} hour{duration !== 1 ? "s" : ""} for this booking — no card, no charge.
                             </p>
                             <Button
                               type="button"

@@ -90,6 +90,13 @@ Deno.serve(async (req) => {
     if (bay.location !== location) {
       return json({ error: 'Bay does not match the selected location.' }, { status: 400 });
     }
+    // VIP suites cannot be booked with banked hours — standard bays only.
+    if (bay.bay_type === 'vip') {
+      return json({
+        error: 'VIP suites can\'t be booked with banked hours. Choose a standard bay, or book the VIP suite the regular way.',
+        vipNotAllowed: true
+      }, { status: 400 });
+    }
 
     const startMin = timeToMinutes(startTime);
     const endMin = timeToMinutes(endTime);

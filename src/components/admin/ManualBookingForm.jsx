@@ -706,13 +706,20 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {sortedSimulators.map(bay => {
               const checked = formData.simulator_ids.includes(bay.id);
+              // VIP suites can't be booked with banked hours — disable them
+              // when redeeming hours so staff can't pick one.
+              const vipBlocked = usingBanked && bay.bay_type === "vip";
               return (
                 <button
                   type="button"
                   key={bay.id}
-                  onClick={() => toggleBay(bay.id)}
+                  onClick={() => !vipBlocked && toggleBay(bay.id)}
+                  disabled={vipBlocked}
+                  title={vipBlocked ? "VIP suites can't be booked with banked hours" : undefined}
                   className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2.5 text-left transition-colors ${
-                    checked
+                    vipBlocked
+                      ? "border-slate-200 bg-slate-100 opacity-50 cursor-not-allowed"
+                      : checked
                       ? "border-[#2d5567] bg-[#2d5567]/10"
                       : "border-slate-200 hover:border-slate-300"
                   }`}
@@ -725,6 +732,9 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
               );
             })}
           </div>
+          {usingBanked && (
+            <p className="text-xs text-slate-500">VIP suites can't be booked with banked hours — standard bays only.</p>
+          )}
           {formData.simulator_ids.length > 0 && (
             <p className="text-xs text-slate-500">
               {formData.simulator_ids.length} bay{formData.simulator_ids.length === 1 ? "" : "s"} selected
@@ -899,7 +909,20 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           <Label htmlFor="payment-method">Payment Method</Label>
           <Select
             value={formData.payment_method}
-            onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
+            onValueChange={(value) => {
+              setFormData((prev) => {
+                // Switching to banked hours? Drop any VIP bays already picked —
+                // VIP suites can't be booked with banked hours.
+                const simulator_ids =
+                  value === "banked_hours"
+                    ? prev.simulator_ids.filter((id) => {
+                        const bay = simulators.find((s) => s.id === id);
+                        return bay && bay.bay_type !== "vip";
+                      })
+                    : prev.simulator_ids;
+                return { ...prev, payment_method: value, simulator_ids };
+              });
+            }}
           >
             <SelectTrigger id="payment-method" className="h-12">
               <SelectValue />
