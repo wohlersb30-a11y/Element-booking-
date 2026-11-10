@@ -652,10 +652,12 @@ export default function DailyScheduleView({
                                           ) : null}
                                           <div className="text-[11px] font-bold truncate pr-3 flex items-center gap-1">
                                             {hasAdminNote && (
-                                              <Flag
-                                                className="w-3 h-3 shrink-0 text-red-500 fill-red-500 drop-shadow"
-                                                title="Staff note on this reservation — click to read"
-                                              />
+                                              <span
+                                                className="shrink-0 inline-flex cursor-help"
+                                                title={`Staff note: ${String(booking.staff_notes).trim()}`}
+                                              >
+                                                <Flag className="w-3 h-3 text-red-500 fill-red-500 drop-shadow" />
+                                              </span>
                                             )}
                                             <span className="truncate">{first} {last}</span>
                                           </div>
