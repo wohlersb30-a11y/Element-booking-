@@ -100,6 +100,11 @@ Deno.serve(async (req) => {
     const testEmail: string | undefined = body?.testEmail?.trim?.().toLowerCase();
     const sendAll: boolean = !!body?.sendAll;
     const dryRun: boolean = !!body?.dryRun;
+    // Optional allow-list to re-send to only specific customers (e.g. retrying
+    // the ones that hit a rate limit) while still using their REAL balances.
+    const onlyEmails: string[] = Array.isArray(body?.onlyEmails)
+      ? body.onlyEmails.map((e: string) => String(e || '').trim().toLowerCase()).filter(Boolean)
+      : [];
 
     if (!testEmail && !sendAll) {
       return json({ error: 'Pass testEmail or sendAll.' }, { status: 400 });
@@ -155,6 +160,12 @@ Deno.serve(async (req) => {
         peak: Math.round(bal[e].peak * 100) / 100,
         off_peak: Math.round(bal[e].off_peak * 100) / 100
       }));
+
+      // If an allow-list was given, keep only those customers.
+      if (onlyEmails.length) {
+        const set = new Set(onlyEmails);
+        recipients = recipients.filter((r) => set.has(r.email));
+      }
     }
 
     if (dryRun) {
@@ -164,7 +175,10 @@ Deno.serve(async (req) => {
     const sent: string[] = [];
     const failed: { email: string; error: string }[] = [];
 
-    for (const r of recipients) {
+    // Resend allows 10 requests/second. Space sends ~150ms apart (~6-7/sec) to
+    // stay safely under the limit for the whole batch.
+    for (let i = 0; i < recipients.length; i++) {
+      const r = recipients[i];
       try {
         const result = await sendEmail({
           from_name: 'Element Indoor Golf',
@@ -176,6 +190,9 @@ Deno.serve(async (req) => {
         else sent.push(r.email);
       } catch (err) {
         failed.push({ email: r.email, error: (err as any)?.message || 'send failed' });
+      }
+      if (i < recipients.length - 1) {
+        await new Promise((res) => setTimeout(res, 150));
       }
     }
 
