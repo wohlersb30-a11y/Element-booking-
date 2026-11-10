@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Booking } from "@/entities/all";
 import { supabase } from "@/lib/supabaseClient";
+import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -154,6 +155,14 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Banked-hours redemption (staff booking on behalf of a customer who has a
+  // prepaid hour package). When the payment method is "banked_hours" we show a
+  // live balance preview and, on submit, route through the admin edge function
+  // that debits the customer's ledger instead of creating a cash booking.
+  const usingBanked = formData.payment_method === "banked_hours";
+  const [bankedPreview, setBankedPreview] = useState(null);
+  const [bankedPreviewLoading, setBankedPreviewLoading] = useState(false);
+
   // --- Customer autocomplete (search the imported customer directory) ---
   // As the admin types a name (or email/phone) into the Customer Name box, we
   // look up matching contacts in the `customers` table and offer to auto-fill
@@ -304,6 +313,44 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     }
   }, [preselectedBay, preselectedTime]);
 
+  // Live banked-hours balance preview for the first session, so staff can see
+  // how many hours the customer has (and whether this slot is covered) before
+  // submitting. Re-runs when the customer, date, time, or duration changes.
+  useEffect(() => {
+    if (!usingBanked) {
+      setBankedPreview(null);
+      return;
+    }
+    const email = (formData.customer_email || "").trim();
+    if (!email || !formData.start_time || !formData.booking_date || !formData.duration_hours) {
+      setBankedPreview(null);
+      return;
+    }
+    let active = true;
+    setBankedPreviewLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const result = await base44.functions.invoke("adminBankedBooking", {
+          action: "preview",
+          customerEmail: email,
+          location,
+          bookingDate: format(formData.booking_date, "yyyy-MM-dd"),
+          startTime: formData.start_time,
+          durationHours: formData.duration_hours
+        });
+        if (active) setBankedPreview(result?.data || null);
+      } catch (e) {
+        if (active) setBankedPreview(null);
+      } finally {
+        if (active) setBankedPreviewLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [usingBanked, formData.customer_email, formData.booking_date, formData.start_time, formData.duration_hours, location]);
+
   // Toggle a bay in/out of the multi-bay selection.
   const toggleBay = (id) => {
     setFormData(prev => ({
@@ -338,6 +385,110 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
     ? recurringDates.reduce((sum, d) => sum + sessionCostFor(d), 0)
     : 0;
 
+  // Redeem a customer's banked hours for this reservation (staff phone/walk-in
+  // booking). Loops every selected bay × date, calling the admin edge function
+  // which debits the customer's ledger (off-peak hours restricted during peak)
+  // and creates a confirmed banked booking (green on the tee sheet). VIP bays
+  // add a surcharge the server records as pending for the desk to collect.
+  const submitBanked = async () => {
+    setIsSubmitting(true);
+    try {
+      const endTime = calculateEndTime(formData.start_time, formData.duration_hours);
+      const dates = formData.is_recurring ? recurringDates : [formData.booking_date];
+
+      const created = [];
+      const failures = [];
+      let surchargeDue = false;
+      let firstBooking = null;
+
+      for (const d of dates) {
+        const formattedDate = format(d, "yyyy-MM-dd");
+        for (const bay of selectedBays) {
+          try {
+            const result = await base44.functions.invoke("adminBankedBooking", {
+              action: "book",
+              customerEmail: (formData.customer_email || "").trim(),
+              customerName: formData.customer_name,
+              customerPhone: formData.customer_phone,
+              simulatorId: bay.id,
+              location,
+              bookingDate: formattedDate,
+              startTime: formData.start_time,
+              endTime,
+              durationHours: formData.duration_hours,
+              playerCount: formData.number_of_players,
+              notes: formData.notes
+            });
+            const data = result?.data;
+            if (data?.success) {
+              created.push({ bay, formattedDate, booking: data.booking });
+              if (data.surchargeDue) surchargeDue = true;
+              if (!firstBooking) firstBooking = { bay, formattedDate };
+            } else {
+              failures.push(`${getBayDisplayName(bay.name, location)} ${format(d, "EEE MMM d")}: ${data?.error || "failed"}`);
+            }
+          } catch (err) {
+            failures.push(`${getBayDisplayName(bay.name, location)} ${format(d, "EEE MMM d")}: ${err.message || "error"}`);
+          }
+        }
+      }
+
+      if (created.length === 0) {
+        alert(
+          "No banked-hours reservations were created.\n\n" +
+            (failures.join("\n") || "Please check the customer's hour balance and try again.")
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // One confirmation email/text for the first session (lists its bays).
+      let emailFailed = false;
+      const firstSessionBays = created.filter((c) => c.formattedDate === firstBooking.formattedDate);
+      const confirmationData = {
+        simulator_name: firstSessionBays.map((c) => c.bay.name).join(", "),
+        location,
+        customer_name: formData.customer_name,
+        customer_email: formData.customer_email,
+        customer_phone: formData.customer_phone,
+        booking_date: firstBooking.formattedDate,
+        start_time: formData.start_time,
+        end_time: endTime,
+        duration_hours: formData.duration_hours,
+        total_cost: 0,
+        number_of_players: formData.number_of_players
+      };
+      const [emailResult] = await Promise.all([
+        sendBookingConfirmation(confirmationData).catch((err) => {
+          console.error("Confirmation email failed:", err);
+          return { success: false, error: err };
+        }),
+        sendBookingConfirmationSMS(confirmationData).catch((err) =>
+          console.error("Confirmation SMS failed:", err)
+        )
+      ]);
+      emailFailed = !emailResult || emailResult.success === false;
+
+      let msg = `Created ${created.length} banked-hours reservation${created.length === 1 ? "" : "s"} — the customer's hours have been debited.`;
+      if (surchargeDue) {
+        msg += `\n\nNote: a VIP surcharge is due at the desk for this booking (collect per your rate).`;
+      }
+      if (failures.length) {
+        msg += `\n\nCould not create ${failures.length}:\n${failures.join("\n")}`;
+      }
+      msg += emailFailed
+        ? `\n\n⚠️ The confirmation email could NOT be sent to ${formData.customer_email || "the customer"}. Please follow up.`
+        : `\n\nA confirmation was sent to the customer.`;
+      alert(msg);
+
+      onComplete();
+    } catch (error) {
+      console.error("Error creating banked booking:", error);
+      alert("Error redeeming banked hours. Please try again.");
+    }
+    setIsSubmitting(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -346,8 +497,15 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
       return;
     }
 
-    if (!formData.reservation_type) {
+    if (!usingBanked && !formData.reservation_type) {
       alert("Please select a reservation type.");
+      return;
+    }
+
+    // Banked-hours redemption uses its own server flow (debits the customer's
+    // ledger + creates the booking). Handle it separately, then stop.
+    if (usingBanked) {
+      await submitBanked();
       return;
     }
 
@@ -735,6 +893,64 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           </Select>
         </div>
 
+        {/* Payment Method — "Banked hours" redeems a customer's prepaid hour
+            package instead of charging/collecting money. */}
+        <div className="space-y-2">
+          <Label htmlFor="payment-method">Payment Method</Label>
+          <Select
+            value={formData.payment_method}
+            onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
+          >
+            <SelectTrigger id="payment-method" className="h-12">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pay_at_venue">Pay at venue</SelectItem>
+              <SelectItem value="banked_hours">Redeem banked hours</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Banked-hours balance preview for the first session. */}
+        {usingBanked && (
+          <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-1 text-sm">
+            {!formData.customer_email ? (
+              <p className="text-slate-600">Enter the customer's email to look up their banked hours.</p>
+            ) : bankedPreviewLoading ? (
+              <div className="flex items-center gap-2 text-slate-600">
+                <Loader2 className="w-4 h-4 animate-spin" /> Checking banked hours…
+              </div>
+            ) : bankedPreview?.success ? (
+              <>
+                <p className="text-slate-700">
+                  <span className="font-semibold">{formData.customer_name || "This customer"}</span> has{" "}
+                  <span className="font-semibold">{Number(bankedPreview.balance?.peak || 0)}</span> peak ·{" "}
+                  <span className="font-semibold">{Number(bankedPreview.balance?.off_peak || 0)}</span> off-peak hour(s)
+                  at {location === "burnsville" ? "Burnsville" : "Vadnais Heights"}.
+                </p>
+                <p className="text-slate-700">
+                  This is a <span className="font-semibold">{bankedPreview.slotIsPeak ? "peak" : "off-peak"}</span>{" "}
+                  slot needing <span className="font-semibold">{bankedPreview.needed}</span> hour(s).{" "}
+                  {bankedPreview.sufficient ? (
+                    <span className="text-green-700 font-semibold">Covered — hours will be debited on submit.</span>
+                  ) : (
+                    <span className="text-rose-700 font-semibold">
+                      Not enough usable hours for this slot.
+                    </span>
+                  )}
+                </p>
+                {bankedPreview.slotIsPeak && (
+                  <p className="text-xs text-slate-500">
+                    Off-peak hours cannot be used during peak times (Fri noon – Sun close); only peak hours apply here.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-slate-600">No banked hours on file for this customer at this location.</p>
+            )}
+          </div>
+        )}
+
         {/* Players and Payment */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -864,8 +1080,8 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           )}
         </div>
 
-        {/* Total Cost Display */}
-        {totalCost > 0 && (
+        {/* Total Cost Display (cash bookings only — banked redeems hours) */}
+        {!usingBanked && totalCost > 0 && (
           <div className="p-4 bg-emerald-50 rounded-lg space-y-1">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-lg">
@@ -898,7 +1114,12 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
           </Button>
           <Button
             type="submit"
-            disabled={isSubmitting || formData.simulator_ids.length === 0 || !formData.start_time}
+            disabled={
+              isSubmitting ||
+              formData.simulator_ids.length === 0 ||
+              !formData.start_time ||
+              (usingBanked && bankedPreview?.success && !bankedPreview.sufficient)
+            }
             className="flex-1 h-12 bg-[#2d5567] hover:bg-[#1e3a47]"
           >
             {isSubmitting ? (
