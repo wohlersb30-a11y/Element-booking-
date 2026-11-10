@@ -559,18 +559,22 @@ export default function BookSimulator() {
   };
 
   const handleBaySelect = (bayInfo) => {
-    setSelectedBays(prev => {
-      const isAlreadySelected = prev.some(b => b.bay.id === bayInfo.bay.id);
-      const next = isAlreadySelected
+    // Decide add-vs-remove from current state OUTSIDE the updater. The updater
+    // passed to setSelectedBays must stay pure — React may call it more than
+    // once (StrictMode, render bail-outs), so triggering another setState
+    // (setShowBayChoice) from inside it re-scheduled updates on every replay and
+    // caused an infinite render loop (React error #185) when adding a 2nd bay.
+    const isAlreadySelected = selectedBays.some(b => b.bay.id === bayInfo.bay.id);
+    setSelectedBays(prev =>
+      prev.some(b => b.bay.id === bayInfo.bay.id)
         ? prev.filter(b => b.bay.id !== bayInfo.bay.id)
-        : [...prev, { ...bayInfo, quantity: 1 }];
-      // A bay was just ADDED -> ask whether they want more bays or to continue,
-      // so they don't have to scroll past the rest of the available bays.
-      if (!isAlreadySelected) {
-        setShowBayChoice(true);
-      }
-      return next;
-    });
+        : [...prev, { ...bayInfo, quantity: 1 }]
+    );
+    // A bay was just ADDED -> ask whether they want more bays or to continue,
+    // so they don't have to scroll past the rest of the available bays.
+    if (!isAlreadySelected) {
+      setShowBayChoice(true);
+    }
   };
 
   const handleSubmit = async (e) => {
