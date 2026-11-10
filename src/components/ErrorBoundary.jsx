@@ -88,13 +88,14 @@ export default class ErrorBoundary extends React.Component {
             </button>
           </div>
 
-          {/* Collapsed by default so customers just see the friendly message.
-              Staff can expand it (or ask a caller to) to read the exact error
-              and failing component, which makes the crash diagnosable. */}
+          {/* Open by default (temporary) so the exact error + failing component
+              is on-screen the moment a crash happens — staff/callers can read it
+              straight off the page and relay it, which makes an otherwise
+              hard-to-reproduce crash diagnosable. Re-collapse once pinned down. */}
           {(this.state.errorText || this.state.stackText) && (
-            <details className="mt-6 text-left">
+            <details className="mt-6 text-left" open>
               <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600 select-none">
-                Technical details (for support)
+                Technical details (please read these to support)
               </summary>
               <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] leading-relaxed text-slate-600">
                 {this.state.errorText}
