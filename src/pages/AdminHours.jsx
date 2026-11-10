@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Search, Upload, Plus } from "lucide-react";
+import { Loader2, Search, Upload, Plus, User as UserIcon } from "lucide-react";
+import { createPageUrl } from "@/utils";
 import { format } from "date-fns";
 
 const LOCATIONS = [
@@ -42,6 +44,7 @@ function parseCsv(text) {
 }
 
 export default function AdminHours() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -52,6 +55,7 @@ export default function AdminHours() {
   const [adjHours, setAdjHours] = useState("");
   const [adjLocation, setAdjLocation] = useState("vadnais_heights");
   const [adjNote, setAdjNote] = useState("");
+  const [adjSignature, setAdjSignature] = useState("");
 
   // Import form
   const [csv, setCsv] = useState("");
@@ -83,6 +87,10 @@ export default function AdminHours() {
       setError("Enter an email and a non-zero hours value (use a negative number to remove hours).");
       return;
     }
+    if (!adjSignature.trim()) {
+      setError("An employee signature is required to add or remove hours.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await base44.functions.invoke("adminHourBalance", {
@@ -91,12 +99,14 @@ export default function AdminHours() {
         kind: adjKind,
         hours,
         location: adjLocation,
-        note: adjNote
+        note: adjNote,
+        signature: adjSignature.trim()
       });
       const d = res.data || {};
       if (d.success) {
         setAdjHours("");
         setAdjNote("");
+        setAdjSignature("");
         await lookup(email);
       } else setError(d.error || "Adjustment failed.");
     } catch (err) {
@@ -164,12 +174,24 @@ export default function AdminHours() {
             <div className="space-y-4">
               {/* Combined pool — hours redeem at EITHER club, so this total is
                   what the customer actually has to spend. */}
-              <div className="rounded-lg border-2 border-green-600 bg-green-50 p-4">
-                <p className="font-semibold text-green-800">Total banked hours (usable at either club)</p>
-                <p className="text-sm text-slate-700 mt-1">
-                  Peak: <span className="font-bold text-orange-600">{Number(result.total?.peak || 0)}</span> ·
-                  {" "}Off-peak: <span className="font-bold text-teal-600">{Number(result.total?.off_peak || 0)}</span>
-                </p>
+              <div className="rounded-lg border-2 border-green-600 bg-green-50 p-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-green-800">Total banked hours (usable at either club)</p>
+                  <p className="text-sm text-slate-700 mt-1">
+                    Peak: <span className="font-bold text-orange-600">{Number(result.total?.peak || 0)}</span> ·
+                    {" "}Off-peak: <span className="font-bold text-teal-600">{Number(result.total?.off_peak || 0)}</span>
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() =>
+                    navigate(`${createPageUrl("CustomerProfile")}?email=${encodeURIComponent(email.trim().toLowerCase())}`)
+                  }
+                >
+                  <UserIcon className="w-4 h-4 mr-1" /> View full profile
+                </Button>
               </div>
 
               {Object.keys(result.balance || {}).length > 0 && (
@@ -222,6 +244,19 @@ export default function AdminHours() {
                     <Label className="text-xs">Note</Label>
                     <Input value={adjNote} onChange={(e) => setAdjNote(e.target.value)} placeholder="reason" />
                   </div>
+                </div>
+                <div>
+                  <Label className="text-xs">
+                    Employee signature <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    value={adjSignature}
+                    onChange={(e) => setAdjSignature(e.target.value)}
+                    placeholder="Type your full name to authorize this change"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Required. Your name is recorded with this adjustment for our records.
+                  </p>
                 </div>
                 <Button onClick={adjust} disabled={loading} className="bg-[#2d5567]">Apply</Button>
               </div>

@@ -34,7 +34,9 @@ function fmtTime(t) {
 
 export default function CustomerProfile() {
   const navigate = useNavigate();
-  const id = new URLSearchParams(window.location.search).get("id");
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("id");
+  const emailParam = (params.get("email") || "").trim().toLowerCase();
 
   const [customer, setCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -85,13 +87,28 @@ export default function CustomerProfile() {
       setLoading(true);
       setError("");
       try {
-        if (!id) throw new Error("No customer specified.");
-        const { data, error: cErr } = await supabase
-          .from("customers")
-          .select("id, full_name, email, phone, source, note, created_at")
-          .eq("id", id)
-          .single();
-        if (cErr) throw cErr;
+        if (!id && !emailParam) throw new Error("No customer specified.");
+        // Load the customers row by id, or by email when we arrived from the
+        // banked-hours lookup (which only knows the address). If no directory
+        // row exists for that email, fall back to a minimal record so the
+        // balance / ledger / reservations (all keyed by email) still show.
+        let data = null;
+        if (id) {
+          const { data: byId, error: cErr } = await supabase
+            .from("customers")
+            .select("id, full_name, email, phone, source, note, created_at")
+            .eq("id", id)
+            .single();
+          if (cErr) throw cErr;
+          data = byId;
+        } else {
+          const { data: byEmail } = await supabase
+            .from("customers")
+            .select("id, full_name, email, phone, source, note, created_at")
+            .eq("email", emailParam)
+            .limit(1);
+          data = byEmail?.[0] || { id: null, full_name: null, email: emailParam, phone: null };
+        }
         if (!active) return;
         setCustomer(data);
 
@@ -118,7 +135,7 @@ export default function CustomerProfile() {
     return () => {
       active = false;
     };
-  }, [id, loadHours]);
+  }, [id, emailParam, loadHours]);
 
   const submitAdjust = async () => {
     setSaveErr("");
