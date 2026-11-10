@@ -34,9 +34,9 @@ export const BOOKING_CATEGORIES = [
   {
     key: "banked",
     label: "Banked hours",
-    dot: "bg-teal-500",
-    block: "bg-teal-500 hover:bg-teal-600 text-white",
-    border: "border-teal-700"
+    dot: "bg-green-500",
+    block: "bg-green-500 hover:bg-green-600 text-white",
+    border: "border-green-700"
   }
 ];
 
