@@ -597,7 +597,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
               and read the note. */}
           <div>
             <h3 className="font-semibold text-lg mb-1 flex items-center gap-2">
-              <Flag className="w-4 h-4 text-amber-500 fill-amber-400" />
+              <Flag className="w-4 h-4 text-red-500 fill-red-500" />
               Staff Note (Internal)
             </h3>
             <p className="text-xs text-slate-500 mb-3">

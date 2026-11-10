@@ -653,7 +653,7 @@ export default function DailyScheduleView({
                                           <div className="text-[11px] font-bold truncate pr-3 flex items-center gap-1">
                                             {hasAdminNote && (
                                               <Flag
-                                                className="w-3 h-3 shrink-0 text-amber-300 fill-amber-300 drop-shadow"
+                                                className="w-3 h-3 shrink-0 text-red-500 fill-red-500 drop-shadow"
                                                 title="Staff note on this reservation — click to read"
                                               />
                                             )}
