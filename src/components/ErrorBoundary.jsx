@@ -8,22 +8,37 @@ import React from "react";
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, errorText: "", stackText: "" };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorText: (error && (error.message || String(error))) || "Unknown error"
+    };
   }
 
   componentDidCatch(error, info) {
     // Surface for debugging / future error-reporting hookup.
     console.error("App error boundary caught an error:", error, info);
+    // Retain the error + the React component stack so support can read the
+    // exact failing component off the screen when a customer calls — the next
+    // crash becomes diagnosable instead of console-only.
+    this.setState({
+      errorText: (error && (error.message || String(error))) || "Unknown error",
+      stackText: (info && info.componentStack ? String(info.componentStack) : "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 6)
+        .join("\n")
+    });
   }
 
   componentDidUpdate(prevProps) {
     // Navigating to a different route should recover the app automatically.
     if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
+      this.setState({ hasError: false, errorText: "", stackText: "" });
     }
   }
 
@@ -72,6 +87,21 @@ export default class ErrorBoundary extends React.Component {
               Back to booking
             </button>
           </div>
+
+          {/* Collapsed by default so customers just see the friendly message.
+              Staff can expand it (or ask a caller to) to read the exact error
+              and failing component, which makes the crash diagnosable. */}
+          {(this.state.errorText || this.state.stackText) && (
+            <details className="mt-6 text-left">
+              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600 select-none">
+                Technical details (for support)
+              </summary>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] leading-relaxed text-slate-600">
+                {this.state.errorText}
+                {this.state.stackText ? `\n\n${this.state.stackText}` : ""}
+              </pre>
+            </details>
+          )}
         </div>
       </div>
     );
