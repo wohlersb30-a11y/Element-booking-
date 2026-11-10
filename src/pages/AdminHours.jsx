@@ -261,11 +261,31 @@ export default function AdminHours() {
         <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Upload className="w-5 h-5" /> Import existing balances</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
-            Paste a CSV export from your current system. First row must be a header. Recognized columns:
+            Upload a CSV file, or paste the CSV text below. First row must be a header. Recognized columns:
             {" "}<code>email, location, peak, off_peak</code>. Location is optional (hours redeem at
             {" "}either club either way) — if set, use <code>vadnais_heights</code> or <code>burnsville</code>.
             {" "}Re-running with the same note skips customers already imported under that note.
           </p>
+          <div>
+            <Label className="text-xs">Upload CSV file</Label>
+            <Input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  setCsv(String(reader.result || ""));
+                  setImportMsg("");
+                };
+                reader.readAsText(file);
+              }}
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              The file's contents load into the box below — review, then click Import.
+            </p>
+          </div>
           <div>
             <Label className="text-xs">Batch note</Label>
             <Input value={importNote} onChange={(e) => setImportNote(e.target.value)} />
