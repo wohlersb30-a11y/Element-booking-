@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, Lock, Crown, Tag } from "lucide-react";
+import { Users, Lock, Crown, Tag, Flag } from "lucide-react";
 import { Booking } from "@/entities/Booking";
 import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
 import { useLocationHours, toMinutes, closeTimeForDate } from "@/config/hours";
@@ -619,6 +619,11 @@ export default function DailyScheduleView({
                                       const dropId = `bay-${bay.id}-slot-${halfSlot}`;
                                       const cat = categoryStyle(booking);
                                       const isMember = booking.booking_type === 'member' || booking.is_member;
+                                      // An admin can leave an internal note on a reservation
+                                      // (staff_notes, edited in BookingDetailModal). When one
+                                      // exists we flag the block so staff know to open it and
+                                      // read the note.
+                                      const hasAdminNote = !!(booking.staff_notes && String(booking.staff_notes).trim());
 
                                       const [startHour, startMin] = booking.start_time.split(':').map(Number);
                                       const [endHour, endMin] = booking.end_time.split(':').map(Number);
@@ -645,7 +650,15 @@ export default function DailyScheduleView({
                                               <Lock className="w-3 h-3" />
                                             </div>
                                           ) : null}
-                                          <div className="text-[11px] font-bold truncate pr-3">{first} {last}</div>
+                                          <div className="text-[11px] font-bold truncate pr-3 flex items-center gap-1">
+                                            {hasAdminNote && (
+                                              <Flag
+                                                className="w-3 h-3 shrink-0 text-amber-300 fill-amber-300 drop-shadow"
+                                                title="Staff note on this reservation — click to read"
+                                              />
+                                            )}
+                                            <span className="truncate">{first} {last}</span>
+                                          </div>
                                           <div className="text-[10px] opacity-80 truncate">
                                             {isMember ? (booking.is_prime ? 'Prime member' : 'Included') : booking.customer_phone}
                                           </div>

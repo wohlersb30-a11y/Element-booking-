@@ -5,7 +5,7 @@ import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { X, Calendar, Clock, MapPin, Users, Phone, Mail, MessageSquare, CreditCard, DollarSign, Loader2 } from "lucide-react";
+import { X, Calendar, Clock, MapPin, Users, Phone, Mail, MessageSquare, CreditCard, DollarSign, Loader2, Flag } from "lucide-react";
 import { format } from "date-fns";
 
 import CheckInSystem from "./CheckInSystem";
@@ -591,14 +591,23 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
             </div>
           )}
 
-          {/* Staff Notes */}
+          {/* Staff Notes — the internal "admin note" for this reservation.
+              Saving any text here raises an amber flag on the reservation's
+              block on the daily tee sheet so other employees know to open it
+              and read the note. */}
           <div>
-            <h3 className="font-semibold text-lg mb-3">Staff Notes (Internal)</h3>
+            <h3 className="font-semibold text-lg mb-1 flex items-center gap-2">
+              <Flag className="w-4 h-4 text-amber-500 fill-amber-400" />
+              Staff Note (Internal)
+            </h3>
+            <p className="text-xs text-slate-500 mb-3">
+              Anything you save here shows a flag on this reservation on the tee sheet so staff know to check it.
+            </p>
             <div className="space-y-3">
               <Textarea
                 value={staffNotes}
                 onChange={(e) => setStaffNotes(e.target.value)}
-                placeholder="Add internal notes about this booking..."
+                placeholder="e.g. Called ahead — running 15 min late · birthday group, bring cake · card declined, collect at desk"
                 rows={3}
                 className="text-base"
               />
