@@ -926,7 +926,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
                   <span className="font-semibold">{formData.customer_name || "This customer"}</span> has{" "}
                   <span className="font-semibold">{Number(bankedPreview.balance?.peak || 0)}</span> peak ·{" "}
                   <span className="font-semibold">{Number(bankedPreview.balance?.off_peak || 0)}</span> off-peak hour(s)
-                  at {location === "burnsville" ? "Burnsville" : "Vadnais Heights"}.
+                  banked (usable at either club).
                 </p>
                 <p className="text-slate-700">
                   This is a <span className="font-semibold">{bankedPreview.slotIsPeak ? "peak" : "off-peak"}</span>{" "}
@@ -946,7 +946,7 @@ export default function ManualBookingForm({ simulators, existingBookings = [], e
                 )}
               </>
             ) : (
-              <p className="text-slate-600">No banked hours on file for this customer at this location.</p>
+              <p className="text-slate-600">No banked hours on file for this customer.</p>
             )}
           </div>
         )}

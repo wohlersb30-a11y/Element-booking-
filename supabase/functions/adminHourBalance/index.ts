@@ -43,7 +43,14 @@ Deno.serve(async (req) => {
         .select('*')
         .eq('user_email', email)
         .order('created_at', { ascending: false });
-      return json({ success: true, email, balance: await balanceFor(email), ledger: ledger || [] });
+      const balance = await balanceFor(email);
+      // Combined pool across BOTH locations (hours redeem at either club).
+      const total = { peak: 0, off_peak: 0 };
+      for (const b of Object.values(balance)) {
+        total.peak += Number(b.peak || 0);
+        total.off_peak += Number(b.off_peak || 0);
+      }
+      return json({ success: true, email, balance, total, ledger: ledger || [] });
     }
 
     if (action === 'adjust') {

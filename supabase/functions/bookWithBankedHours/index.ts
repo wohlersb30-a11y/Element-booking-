@@ -76,12 +76,12 @@ Deno.serve(async (req) => {
       return json({ error: 'That bay is already booked for this time.' }, { status: 409 });
     }
 
-    // Current balance for this customer at this location, grouped by bucket.
+    // Current banked balance for this customer across BOTH locations — hours are
+    // a single shared pool, usable at either club regardless of where bought.
     const { data: ledger } = await db
       .from('hour_transactions')
       .select('kind,hours')
-      .eq('user_email', email)
-      .eq('location', location);
+      .eq('user_email', email);
     const balance = { peak: 0, off_peak: 0 };
     for (const t of ledger || []) {
       balance[t.kind === 'peak' ? 'peak' : 'off_peak'] += Number(t.hours || 0);

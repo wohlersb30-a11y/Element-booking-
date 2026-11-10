@@ -162,21 +162,32 @@ export default function AdminHours() {
 
           {result && (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {Object.keys(result.balance || {}).length === 0 ? (
-                  <p className="text-slate-500 text-sm">No banked hours on record.</p>
-                ) : (
-                  Object.entries(result.balance).map(([loc, b]) => (
+              {/* Combined pool — hours redeem at EITHER club, so this total is
+                  what the customer actually has to spend. */}
+              <div className="rounded-lg border-2 border-green-600 bg-green-50 p-4">
+                <p className="font-semibold text-green-800">Total banked hours (usable at either club)</p>
+                <p className="text-sm text-slate-700 mt-1">
+                  Peak: <span className="font-bold text-orange-600">{Number(result.total?.peak || 0)}</span> ·
+                  {" "}Off-peak: <span className="font-bold text-teal-600">{Number(result.total?.off_peak || 0)}</span>
+                </p>
+              </div>
+
+              {Object.keys(result.balance || {}).length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {Object.entries(result.balance).map(([loc, b]) => (
                     <div key={loc} className="rounded-lg border p-3">
-                      <p className="font-semibold text-slate-700">{LOCATION_LABEL[loc] || loc}</p>
+                      <p className="font-semibold text-slate-700">
+                        {loc === "unknown" ? "No location on record" : (LOCATION_LABEL[loc] || loc)}
+                      </p>
                       <p className="text-sm text-slate-600">
                         Peak: <span className="font-bold text-orange-600">{b.peak}</span> ·
                         {" "}Off-peak: <span className="font-bold text-teal-600">{b.off_peak}</span>
                       </p>
+                      <p className="text-xs text-slate-400 mt-1">where these hours were purchased / imported</p>
                     </div>
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {/* Adjust */}
               <div className="rounded-lg border p-4 space-y-3 bg-slate-50">
@@ -251,9 +262,9 @@ export default function AdminHours() {
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-600">
             Paste a CSV export from your current system. First row must be a header. Recognized columns:
-            {" "}<code>email, location, peak, off_peak</code>. Location should be
-            {" "}<code>vadnais_heights</code> or <code>burnsville</code>. Re-running with the same note skips
-            customers already imported under that note.
+            {" "}<code>email, location, peak, off_peak</code>. Location is optional (hours redeem at
+            {" "}either club either way) — if set, use <code>vadnais_heights</code> or <code>burnsville</code>.
+            {" "}Re-running with the same note skips customers already imported under that note.
           </p>
           <div>
             <Label className="text-xs">Batch note</Label>

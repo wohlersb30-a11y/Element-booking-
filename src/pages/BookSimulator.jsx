@@ -275,19 +275,20 @@ export default function BookSimulator() {
     loadData();
   }, []);
 
-  // Load the customer's banked-hours balance for the selected location so we can
-  // offer "Use banked hours" at checkout. RLS scopes the ledger to this user.
+  // Load the customer's banked-hours balance so we can offer "Use banked hours"
+  // at checkout. Hours are a single shared pool usable at EITHER club, so we sum
+  // the whole ledger for this customer (not scoped to the selected location).
+  // RLS scopes the ledger to this user.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!customerEmail || !selectedLocation) {
+      if (!customerEmail) {
         setBankedBalance({ peak: 0, off_peak: 0 });
         return;
       }
       try {
         const txns = await base44.entities.HourTransaction.filter({
-          user_email: customerEmail.toLowerCase(),
-          location: selectedLocation
+          user_email: customerEmail.toLowerCase()
         });
         const bal = { peak: 0, off_peak: 0 };
         for (const t of txns || []) {
@@ -301,7 +302,7 @@ export default function BookSimulator() {
     return () => {
       cancelled = true;
     };
-  }, [customerEmail, selectedLocation, showSuccess]);
+  }, [customerEmail, showSuccess]);
 
   // The active closure (if any) for the location the customer has selected.
   // When present, online booking is turned off and we show a friendly message.
@@ -1133,7 +1134,7 @@ export default function BookSimulator() {
                           </div>
                           <div className="rounded-xl border-2 border-teal-300 bg-teal-50 p-4">
                             <p className="text-sm font-semibold text-teal-900">
-                              You have banked hours here:{" "}
+                              You have banked hours (usable at either club):{" "}
                               {Math.max(0, bankedBalance.peak)} peak · {Math.max(0, bankedBalance.off_peak)} off-peak
                             </p>
                             <p className="text-xs text-teal-800 mt-1">

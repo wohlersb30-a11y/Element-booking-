@@ -65,8 +65,8 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
 
   // When the reservation was paid with banked hours (green on the tee sheet),
   // staff want to see how many hours that customer has left. We look up their
-  // ledger balance (admin-only adminHourBalance fn) and show it, scoped to this
-  // booking's location (peak / off-peak buckets).
+  // ledger balance (admin-only adminHourBalance fn) and show the combined pool
+  // (peak / off-peak buckets) — hours redeem at either club.
   const isBanked = classifyBooking(booking) === "banked";
   const [bankedBalance, setBankedBalance] = useState(null);
   const [bankedLoading, setBankedLoading] = useState(false);
@@ -86,8 +86,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
         if (cancelled) return;
         const d = result?.data;
         if (d?.success) {
-          const byLoc = d.balance?.[booking.location] || { peak: 0, off_peak: 0 };
-          setBankedBalance(byLoc);
+          setBankedBalance(d.total || { peak: 0, off_peak: 0 });
         } else {
           setBankedError(d?.error || "Could not load hour balance.");
         }
@@ -554,7 +553,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                   <>
                     <p className="text-sm text-slate-700 mb-2">
                       <span className="font-semibold">{booking.customer_name}</span> has
-                      remaining at {booking.location === "burnsville" ? "Burnsville" : "Vadnais Heights"}:
+                      remaining (usable at either club):
                     </p>
                     <div className="flex gap-6">
                       <div>
