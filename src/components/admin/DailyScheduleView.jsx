@@ -153,6 +153,13 @@ export default function DailyScheduleView({
   // guest-pass usage and any amount to collect at the desk.
   const [usageMember, setUsageMember] = useState(null);
 
+  // Instant hover tooltip for a reservation's staff note. Native `title`
+  // tooltips are unreliable on these blocks (the block owns pointer events for
+  // drag-to-move, and the browser adds a ~1s delay), so we render our own
+  // tooltip that follows the cursor and appears immediately. `noteTip` holds
+  // the note text + current cursor position, or null when nothing is hovered.
+  const [noteTip, setNoteTip] = useState(null);
+
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
   const [pendingMove, setPendingMove] = useState(null);
   const [currentTimePosition, setCurrentTimePosition] = useState(null);
@@ -654,7 +661,19 @@ export default function DailyScheduleView({
                                             {hasAdminNote && (
                                               <span
                                                 className="shrink-0 inline-flex cursor-help"
-                                                title={`Staff note: ${String(booking.staff_notes).trim()}`}
+                                                onMouseEnter={(e) =>
+                                                  setNoteTip({
+                                                    text: String(booking.staff_notes).trim(),
+                                                    x: e.clientX,
+                                                    y: e.clientY
+                                                  })
+                                                }
+                                                onMouseMove={(e) =>
+                                                  setNoteTip((t) =>
+                                                    t ? { ...t, x: e.clientX, y: e.clientY } : t
+                                                  )
+                                                }
+                                                onMouseLeave={() => setNoteTip(null)}
                                               >
                                                 <Flag className="w-3 h-3 text-red-500 fill-red-500 drop-shadow" />
                                               </span>
@@ -787,6 +806,17 @@ export default function DailyScheduleView({
             </div>
         </CardContent>
       </Card>
+
+      {/* Instant staff-note tooltip that follows the cursor over a flag. */}
+      {noteTip && (
+        <div
+          className="fixed z-[70] pointer-events-none max-w-xs rounded-md bg-slate-900 text-white text-xs leading-snug px-2.5 py-1.5 shadow-lg whitespace-pre-wrap break-words"
+          style={{ left: noteTip.x + 14, top: noteTip.y + 14 }}
+        >
+          <span className="font-semibold text-red-300">Staff note: </span>
+          {noteTip.text}
+        </div>
+      )}
 
       {/* Floating indicator that follows the cursor while dragging, showing the
           snapped target bay + time and whether the slot is available. */}
