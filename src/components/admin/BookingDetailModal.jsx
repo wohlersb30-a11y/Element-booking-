@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Booking } from "@/entities/all";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import CheckInSystem from "./CheckInSystem";
 import { Textarea } from "@/components/ui/textarea";
 import { useLocationHours, closeTimeForDate } from "@/config/hours";
 import { getBayDisplayName } from "@/lib/bayNames";
-import { RESERVATION_TYPE_OPTIONS } from "@/lib/bookingCategories";
+import { RESERVATION_TYPE_OPTIONS, classifyBooking } from "@/lib/bookingCategories";
 
 const formatTime = (time24) => {
   if (!time24 || typeof time24 !== "string" || !time24.includes(":")) return "";
@@ -62,6 +62,45 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   // admin can correct a mis-tagged row (e.g. a non-member wrongly shown purple).
   const [reservationType, setReservationType] = useState(booking.reservation_type || "public");
   const [isSavingType, setIsSavingType] = useState(false);
+
+  // When the reservation was paid with banked hours (green on the tee sheet),
+  // staff want to see how many hours that customer has left. We look up their
+  // ledger balance (admin-only adminHourBalance fn) and show it, scoped to this
+  // booking's location (peak / off-peak buckets).
+  const isBanked = classifyBooking(booking) === "banked";
+  const [bankedBalance, setBankedBalance] = useState(null);
+  const [bankedLoading, setBankedLoading] = useState(false);
+  const [bankedError, setBankedError] = useState("");
+
+  useEffect(() => {
+    if (!isBanked || !booking.customer_email) return;
+    let cancelled = false;
+    setBankedLoading(true);
+    setBankedError("");
+    (async () => {
+      try {
+        const result = await base44.functions.invoke("adminHourBalance", {
+          action: "lookup",
+          email: booking.customer_email
+        });
+        if (cancelled) return;
+        const d = result?.data;
+        if (d?.success) {
+          const byLoc = d.balance?.[booking.location] || { peak: 0, off_peak: 0 };
+          setBankedBalance(byLoc);
+        } else {
+          setBankedError(d?.error || "Could not load hour balance.");
+        }
+      } catch (err) {
+        if (!cancelled) setBankedError("Could not load hour balance.");
+      } finally {
+        if (!cancelled) setBankedLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBanked, booking.customer_email, booking.location]);
 
   // Operating hours for this booking's location, used to bound the editable
   // start-time / duration options and to validate the new window.
@@ -463,7 +502,7 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                 </div>
                 <p className="text-xs text-slate-500">
                   Controls the color on the daily schedule (Public = blue, Member = purple,
-                  Special = orange, Banked = teal).
+                  Special = orange, Banked = green).
                 </p>
               </div>
             )}
@@ -493,6 +532,55 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
               )}
             </div>
           </div>
+
+          {/* Banked Hours balance — shown for green (banked-hours) reservations
+              so staff can see how many hours this customer has left in their
+              account at this location, split by peak / off-peak bucket. */}
+          {isBanked && (
+            <div>
+              <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-green-600" />
+                Banked Hours
+              </h3>
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                {bankedLoading ? (
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading hour balance…
+                  </div>
+                ) : bankedError ? (
+                  <p className="text-sm text-slate-600">{bankedError}</p>
+                ) : bankedBalance ? (
+                  <>
+                    <p className="text-sm text-slate-700 mb-2">
+                      <span className="font-semibold">{booking.customer_name}</span> has
+                      remaining at {booking.location === "burnsville" ? "Burnsville" : "Vadnais Heights"}:
+                    </p>
+                    <div className="flex gap-6">
+                      <div>
+                        <div className="text-2xl font-bold text-green-700">
+                          {Number(bankedBalance.peak || 0)}
+                        </div>
+                        <div className="text-xs text-slate-500 uppercase tracking-wide">Peak hours</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-green-700">
+                          {Number(bankedBalance.off_peak || 0)}
+                        </div>
+                        <div className="text-xs text-slate-500 uppercase tracking-wide">Off-peak hours</div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Off-peak hours can only be redeemed outside peak times (Fri noon – Sun close);
+                      peak hours can be used anytime.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-600">No hour balance on file for this customer.</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Add-ons Display */}
           {booking.add_ons && booking.add_ons.length > 0 && (
