@@ -631,6 +631,18 @@ export default function DailyScheduleView({
                                       // exists we flag the block so staff know to open it and
                                       // read the note.
                                       const hasAdminNote = !!(booking.staff_notes && String(booking.staff_notes).trim());
+                                      // Hovering ANYWHERE on a flagged reservation shows the note
+                                      // instantly (the flag icon alone is too small a target).
+                                      const noteText = hasAdminNote ? String(booking.staff_notes).trim() : "";
+                                      const noteHandlers = hasAdminNote
+                                        ? {
+                                            onMouseEnter: (e) =>
+                                              setNoteTip({ text: noteText, x: e.clientX, y: e.clientY }),
+                                            onMouseMove: (e) =>
+                                              setNoteTip((t) => ({ text: noteText, x: e.clientX, y: e.clientY })),
+                                            onMouseLeave: () => setNoteTip(null)
+                                          }
+                                        : {};
 
                                       const [startHour, startMin] = booking.start_time.split(':').map(Number);
                                       const [endHour, endMin] = booking.end_time.split(':').map(Number);
@@ -644,7 +656,10 @@ export default function DailyScheduleView({
                                       }
 
                                       const blockInner = (
-                                        <div className={`absolute inset-0 ${cat.block} p-2 overflow-hidden flex flex-col justify-center transition-colors border-l-4 ${booking.bay_locked ? 'border-emerald-600' : cat.border}`}>
+                                        <div
+                                          className={`absolute inset-0 ${cat.block} p-2 overflow-hidden flex flex-col justify-center transition-colors border-l-4 ${booking.bay_locked ? 'border-emerald-600' : cat.border}`}
+                                          {...noteHandlers}
+                                        >
                                           {isMember ? (
                                             <div className="absolute top-1 right-1 opacity-90" title="Member reservation">
                                               <Crown className="w-3 h-3" />
@@ -659,24 +674,7 @@ export default function DailyScheduleView({
                                           ) : null}
                                           <div className="text-[11px] font-bold truncate pr-3 flex items-center gap-1">
                                             {hasAdminNote && (
-                                              <span
-                                                className="shrink-0 inline-flex cursor-help"
-                                                onMouseEnter={(e) =>
-                                                  setNoteTip({
-                                                    text: String(booking.staff_notes).trim(),
-                                                    x: e.clientX,
-                                                    y: e.clientY
-                                                  })
-                                                }
-                                                onMouseMove={(e) =>
-                                                  setNoteTip((t) =>
-                                                    t ? { ...t, x: e.clientX, y: e.clientY } : t
-                                                  )
-                                                }
-                                                onMouseLeave={() => setNoteTip(null)}
-                                              >
-                                                <Flag className="w-3 h-3 text-red-500 fill-red-500 drop-shadow" />
-                                              </span>
+                                              <Flag className="w-3 h-3 shrink-0 text-red-500 fill-red-500 drop-shadow" />
                                             )}
                                             <span className="truncate">{first} {last}</span>
                                           </div>
