@@ -604,6 +604,62 @@ export default function BookSimulator() {
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
       const endTime = calculateEndTime(effectiveTime, duration);
 
+      // AUTHORITATIVE availability re-check BEFORE taking any card hold.
+      // `allBookings`/`allBlocks` are a snapshot captured once at page load and
+      // never refreshed, so a bay can be taken (by another customer, a league
+      // block, or a staff booking) between page load and checkout. Without this
+      // check the customer would be redirected to Stripe, the hold would be
+      // placed, and only THEN would the server's finalizeBooking re-check reject
+      // the overlap — i.e. "it charged me but said it couldn't book it." Here we
+      // pull fresh rows for just this date and re-validate every selected bay up
+      // front, so a stale selection is caught before any money is touched. The
+      // server re-check stays as the final backstop for the sub-second race.
+      try {
+        const [freshBookingsRes, freshBlocksRes] = await Promise.all([
+          supabase
+            .from("bookings")
+            .select("id, simulator_id, booking_date, start_time, end_time, status")
+            .eq("booking_date", formattedDate),
+          supabase
+            .from("schedule_blocks")
+            .select("id, simulator_id, block_date, start_time, end_time")
+            .eq("block_date", formattedDate)
+        ]);
+        // Fail CLOSED on the bookings read (safety-critical). If we can't confirm
+        // the bay is still free, don't risk charging a hold for a lost booking.
+        if (freshBookingsRes.error) throw freshBookingsRes.error;
+        const freshBookings = freshBookingsRes.data || [];
+        // Blocks fail open (same posture as loadData); the server re-check backstops.
+        const freshBlocks = freshBlocksRes.error ? [] : (freshBlocksRes.data || []);
+
+        const stillTaken = selectedBays.filter(
+          (b) => !isBayAvailable(b.bay, formattedDate, effectiveTime, duration, freshBookings, freshBlocks)
+        );
+        if (stillTaken.length > 0) {
+          const names = stillTaken.map((b) => b.bay.name).join(", ");
+          alert(
+            `Sorry — ${names} ${stillTaken.length === 1 ? "was" : "were"} just booked by someone else for ${formatTimeLabel(effectiveTime)}. ` +
+            "No charge or hold was placed. We've refreshed the available bays — please pick another."
+          );
+          // Drop the now-unavailable bays and pull a fresh availability snapshot,
+          // then re-run the search so the on-screen list reflects reality.
+          setSelectedBays((prev) =>
+            prev.filter((b) => !stillTaken.some((s) => s.bay.id === b.bay.id))
+          );
+          await loadData();
+          await handleSearch();
+          setIsSubmitting(false);
+          return;
+        }
+      } catch (recheckErr) {
+        console.error("Pre-checkout availability re-check failed:", recheckErr);
+        alert(
+          "We couldn't confirm your bay is still available. No charge or hold was placed — please try again in a moment."
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const totalBookingCost = selectedBays.reduce((sum, bay) => sum + bay.totalCost, 0);
 
       // Use the actual app domain for success/cancel URLs
