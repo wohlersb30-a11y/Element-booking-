@@ -45,9 +45,39 @@ export default function PaymentSuccess() {
       }
 
       addDebug("Calling verifyStripePayment function...");
-      const result = await base44.functions.invoke('verifyStripePayment', {
-        sessionId: sessionId
-      });
+      // This is the browser-side safety net that turns a paid Stripe session
+      // into booking rows. It is the ONLY backstop when Stripe's webhook doesn't
+      // fire, so it must not give up on a single transient failure (cold start,
+      // dropped connection, momentary network blip after the Stripe redirect) —
+      // those used to surface as "An error occurred" and silently lose a booking
+      // even though the card hold had already been placed. finalizeBooking is
+      // idempotent (keyed on the Stripe payment id), so retrying can never create
+      // a duplicate booking. We only retry when the call itself fails to return a
+      // server response; any definitive response (success true OR false) is final.
+      let result;
+      let lastError;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          result = await base44.functions.invoke('verifyStripePayment', {
+            sessionId: sessionId
+          });
+          if (result && result.data) break; // got a real server response — done
+        } catch (err) {
+          lastError = err;
+          addDebug(`verify attempt ${attempt} failed: ${err?.message || err}`);
+        }
+        if (attempt < 4) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
+      if (!result || !result.data) {
+        throw (
+          lastError ||
+          new Error(
+            "We couldn't reach the server to confirm your booking. If your card shows a pending charge, please call us and we'll finish it for you."
+          )
+        );
+      }
 
       addDebug(`Function response: ${JSON.stringify(result.data)}`);
 
