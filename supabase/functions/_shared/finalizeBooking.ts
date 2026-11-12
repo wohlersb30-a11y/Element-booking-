@@ -93,7 +93,22 @@ export async function finalizeBookingFromSession(
     return finalizeBankedBooking(stripe, session, db, paymentIntentId);
   }
 
-  const bookingData = await readBookingData(session.metadata as Record<string, string>, db);
+  // The card hold is already authorized at this point, so ANY failure from here
+  // on MUST release it — otherwise the customer is left with a pending hold and
+  // no reservation ("it charged me and then booted me"). readBookingData can
+  // throw if the staged payload is missing/unreadable; release before surfacing.
+  let bookingData: any;
+  try {
+    bookingData = await readBookingData(session.metadata as Record<string, string>, db);
+  } catch (readErr) {
+    console.error('readBookingData failed after auth; releasing hold:', (readErr as any)?.message);
+    await releaseHold(stripe, paymentIntentId);
+    return {
+      success: false,
+      error:
+        "We couldn't retrieve your booking details, so your card hold has been released (no charge). Please try booking again."
+    };
+  }
   const customerId = (session.metadata?.customerId as string) || opts.fallbackUserId || null;
 
   // Idempotency: bookings already created for this payment intent? Return them.
@@ -165,7 +180,10 @@ export async function finalizeBookingFromSession(
     end_time: bookingData.endTime,
     duration_hours: bookingData.duration,
     total_cost: bayInfo.cost,
-    number_of_players: bookingData.playerCount,
+    // number_of_players is NOT NULL with no default — guard against a missing
+    // value (which would otherwise fail the insert and strand the hold). A
+    // booking always has at least one player; this field is informational only.
+    number_of_players: Number(bookingData.playerCount) > 0 ? Number(bookingData.playerCount) : 1,
     payment_method: 'credit_card',
     payment_status: 'authorized',
     status: 'confirmed',
@@ -201,7 +219,24 @@ export async function finalizeBookingFromSession(
         error: 'Sorry, that bay and time was just booked by someone else. Your card hold has been released — please choose another time.'
       };
     }
-    throw error;
+    // Any OTHER insert failure (e.g. a NOT NULL / foreign-key / check violation)
+    // is NOT a double-booking but still leaves the card hold authorized with no
+    // booking row — the exact "charged then booted, no reservation" symptom.
+    // Release the hold so the customer is never charged for a booking we failed
+    // to create, log the real DB error for diagnosis, and return a clean failure
+    // instead of a raw 500. (finalize stays idempotent, so a later webhook retry
+    // on a now-cancelled hold simply reports "not authorized" — no late booking.)
+    console.error(
+      'Booking insert failed (non-overlap); releasing hold:',
+      (error as any)?.code || '',
+      (error as any)?.message || error
+    );
+    await releaseHold(stripe, paymentIntentId);
+    return {
+      success: false,
+      error:
+        "Something went wrong creating your reservation, so your card hold has been released (no charge). Please try again, or contact us if it keeps happening."
+    };
   }
 
   await notifyOwnerNewBooking({
