@@ -60,7 +60,7 @@ export const DEFAULT_LESSON_MINUTES = 60;
 export const LESSON_PRO = {
   name: "Brandon Sigette",
   title: "Teaching Professional",
-  headshotUrl: null,
+  headshotUrl: "/brandon-sigette.webp",
   website: "https://www.sigettegolf.com/about-sgs",
   intro:
     "Personalized one-on-one instruction at Element Indoor Golf. Winter lessons for all skill levels — from first-timers to seasoned players looking to sharpen their game.",
