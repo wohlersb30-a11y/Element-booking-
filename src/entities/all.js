@@ -10,4 +10,5 @@ export { LessonSlot } from '@/entities/LessonSlot';
 export { LessonAvailability } from '@/entities/LessonAvailability';
 export { LessonBooking } from '@/entities/LessonBooking';
 export { LessonCredit } from '@/entities/LessonCredit';
+export { LessonBlock } from '@/entities/LessonBlock';
 export { User } from '@/entities/User';

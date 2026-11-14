@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { LessonAvailability, LessonBooking, Simulator, ScheduleBlock } from "@/entities/all";
+import { LessonAvailability, LessonBooking, LessonBlock, Simulator, ScheduleBlock } from "@/entities/all";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { X, Plus, Loader2, Trash2, GraduationCap, CalendarDays, MapPin, AlertTriangle } from "lucide-react";
+import { X, Plus, Loader2, Trash2, GraduationCap, CalendarDays, MapPin, AlertTriangle, Ban } from "lucide-react";
 import { getBayDisplayName } from "@/lib/bayNames";
 import { format, parseISO } from "date-fns";
 
@@ -52,6 +53,16 @@ const emptyForm = {
   end_time: "16:00"
 };
 
+const emptyBlock = {
+  mode: "date", // "date" = a specific calendar date | "weekday" = every week
+  block_date: todayStr(),
+  weekday: 1,
+  all_day: true,
+  start_time: "09:00",
+  end_time: "12:00",
+  note: ""
+};
+
 export default function LessonScheduleManager({ defaultLocation = "vadnais_heights", onClose, availabilityOnly = false }) {
   const [windows, setWindows] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -61,26 +72,42 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
   const [assigningId, setAssigningId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
+  const [blocks, setBlocks] = useState([]);
+  const [showBlockForm, setShowBlockForm] = useState(false);
+  const [blockForm, setBlockForm] = useState({ ...emptyBlock });
+  const [isSavingBlock, setIsSavingBlock] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
       // Availability-only mode (the lesson pro's view) never touches bookings,
       // bays, or blocks — it only reads/writes the weekly windows.
+      // Blocks load the same way in both modes; tolerate a missing table/policy
+      // so the page still works if the migration hasn't been applied yet.
+      const loadBlocks = LessonBlock.filter({ location: defaultLocation })
+        .then((bl) => bl || [])
+        .catch((e) => { console.warn("Lesson blocks unavailable:", e); return []; });
+
       if (availabilityOnly) {
-        const w = await LessonAvailability.filter({ location: defaultLocation }, "weekday");
+        const [w, bl] = await Promise.all([
+          LessonAvailability.filter({ location: defaultLocation }, "weekday"),
+          loadBlocks
+        ]);
         setWindows(w || []);
         setBookings([]);
         setSimulators([]);
+        setBlocks(bl);
       } else {
-        const [w, b, s] = await Promise.all([
+        const [w, b, s, bl] = await Promise.all([
           LessonAvailability.filter({ location: defaultLocation }, "weekday"),
           LessonBooking.filter({ location: defaultLocation }, "lesson_date"),
-          Simulator.filter({ location: defaultLocation }, "name")
+          Simulator.filter({ location: defaultLocation }, "name"),
+          loadBlocks
         ]);
         setWindows(w || []);
         setBookings(b || []);
         setSimulators(s || []);
+        setBlocks(bl);
       }
     } catch (e) {
       console.error("Error loading lesson schedule:", e);
@@ -155,6 +182,63 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
     }
   };
 
+  const openNewBlock = () => {
+    setBlockForm({ ...emptyBlock });
+    setShowBlockForm(true);
+  };
+
+  const handleSaveBlock = async (e) => {
+    e.preventDefault();
+    if (blockForm.mode === "date" && !blockForm.block_date) {
+      alert("Please pick a date to block.");
+      return;
+    }
+    if (!blockForm.all_day && toMinutes(blockForm.end_time) <= toMinutes(blockForm.start_time)) {
+      alert("The block's end time must be after its start time.");
+      return;
+    }
+    setIsSavingBlock(true);
+    try {
+      await LessonBlock.create({
+        location: defaultLocation,
+        block_date: blockForm.mode === "date" ? blockForm.block_date : null,
+        weekday: blockForm.mode === "weekday" ? blockForm.weekday : null,
+        all_day: blockForm.all_day,
+        start_time: blockForm.all_day ? null : blockForm.start_time,
+        end_time: blockForm.all_day ? null : blockForm.end_time,
+        note: blockForm.note || null,
+        is_active: true
+      });
+      setShowBlockForm(false);
+      await load();
+    } catch (err) {
+      console.error("Error saving block:", err);
+      alert("Could not save that block. Please try again.");
+    }
+    setIsSavingBlock(false);
+  };
+
+  const describeBlock = (bl) => {
+    const when = bl.block_date
+      ? format(parseISO(bl.block_date), "EEE, MMM d, yyyy")
+      : `Every ${weekdayLabel(bl.weekday)}`;
+    const span = bl.all_day
+      ? "all day"
+      : `${formatTimeLabel(bl.start_time)}–${formatTimeLabel(bl.end_time)}`;
+    return `${when} · ${span}`;
+  };
+
+  const handleDeleteBlock = async (bl) => {
+    if (!confirm(`Remove this time off? (${describeBlock(bl)})`)) return;
+    try {
+      await LessonBlock.delete(bl.id);
+      await load();
+    } catch (e) {
+      console.error("Error deleting block:", e);
+      alert("Error removing that block.");
+    }
+  };
+
   // Assign (or change / clear) the bay a lesson is held at. Assigning writes a
   // schedule block so the public booking page blocks that bay/time; we remember
   // the block on the lesson to keep it in sync on reassignment.
@@ -202,6 +286,18 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
         : a.lesson_date.localeCompare(b.lesson_date)
     );
   const needsBayCount = upcoming.filter((b) => !b.simulator_id).length;
+
+  // Recurring weekday blocks always show; one-off date blocks only if upcoming.
+  // Order: upcoming dates (soonest first), then recurring weekdays (Mon→Sun).
+  const weekdayOrder = WEEKDAYS.map((d) => d.value);
+  const sortedBlocks = (blocks || [])
+    .filter((bl) => (bl.block_date ? bl.block_date >= today : true))
+    .sort((a, b) => {
+      if (a.block_date && b.block_date) return a.block_date.localeCompare(b.block_date);
+      if (a.block_date) return -1;
+      if (b.block_date) return 1;
+      return weekdayOrder.indexOf(a.weekday) - weekdayOrder.indexOf(b.weekday);
+    });
 
   return (
     <div className="p-6">
@@ -410,6 +506,171 @@ export default function LessonScheduleManager({ defaultLocation = "vadnais_heigh
           ))}
         </div>
       )}
+
+      {/* ---------- Block time off ---------- */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <Ban className="w-5 h-5 text-rose-500" />
+            Blocked Time Off
+          </h3>
+          {!showBlockForm && (
+            <Button onClick={openNewBlock} variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50">
+              <Plus className="w-5 h-5 mr-2" />
+              Block Time
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-slate-500 mb-4">
+          Completely block a specific date or a weekday — the whole day or just a time range. Customers
+          can't book lessons during a block even if it falls inside your weekly availability.
+        </p>
+
+        {showBlockForm && (
+          <form onSubmit={handleSaveBlock} className="space-y-5 mb-6 p-5 bg-rose-50/50 rounded-xl border-2 border-rose-200">
+            <h4 className="text-base font-bold text-slate-800">New Block</h4>
+
+            <div className="space-y-2">
+              <Label>What to block *</Label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBlockForm({ ...blockForm, mode: "date" })}
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                    blockForm.mode === "date" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-700 border-slate-300 hover:border-rose-400"
+                  }`}
+                >
+                  A specific date
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlockForm({ ...blockForm, mode: "weekday" })}
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                    blockForm.mode === "weekday" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-700 border-slate-300 hover:border-rose-400"
+                  }`}
+                >
+                  Every week (a weekday)
+                </button>
+              </div>
+            </div>
+
+            {blockForm.mode === "date" ? (
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <Input
+                  type="date"
+                  min={todayStr()}
+                  value={blockForm.block_date}
+                  onChange={(e) => setBlockForm({ ...blockForm, block_date: e.target.value })}
+                  className="h-12"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Weekday *</Label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((d) => {
+                    const on = blockForm.weekday === d.value;
+                    return (
+                      <button
+                        key={d.value}
+                        type="button"
+                        onClick={() => setBlockForm({ ...blockForm, weekday: d.value })}
+                        className={`px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                          on ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-700 border-slate-300 hover:border-rose-400"
+                        }`}
+                      >
+                        {d.short}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={blockForm.all_day}
+                onChange={(e) => setBlockForm({ ...blockForm, all_day: e.target.checked })}
+                className="w-4 h-4 accent-rose-600"
+              />
+              <span className="text-sm font-medium text-slate-700">Block the whole day</span>
+            </label>
+
+            {!blockForm.all_day && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>From *</Label>
+                  <Select value={blockForm.start_time} onValueChange={(v) => setBlockForm({ ...blockForm, start_time: v })}>
+                    <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIME_SLOTS.map((t) => (
+                        <SelectItem key={t} value={t}>{formatTimeLabel(t)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Until *</Label>
+                  <Select value={blockForm.end_time} onValueChange={(v) => setBlockForm({ ...blockForm, end_time: v })}>
+                    <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIME_SLOTS.map((t) => (
+                        <SelectItem key={t} value={t}>{formatTimeLabel(t)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Note (optional)</Label>
+              <Input
+                value={blockForm.note}
+                onChange={(e) => setBlockForm({ ...blockForm, note: e.target.value })}
+                placeholder="e.g. Holiday, personal day"
+                className="h-12"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={() => setShowBlockForm(false)} className="flex-1 h-12">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSavingBlock} className="flex-1 h-12 bg-rose-600 hover:bg-rose-700">
+                {isSavingBlock ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>) : "Add Block"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {isLoading ? null : sortedBlocks.length === 0 ? (
+          <p className="text-sm text-slate-500 py-2">No blocked time off.</p>
+        ) : (
+          <div className="space-y-2">
+            {sortedBlocks.map((bl) => (
+              <Card key={bl.id} className="border-2 border-rose-200 bg-rose-50/30">
+                <CardContent className="p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm">{describeBlock(bl)}</p>
+                    {bl.note && <p className="text-xs text-slate-500 truncate">{bl.note}</p>}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDeleteBlock(bl)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

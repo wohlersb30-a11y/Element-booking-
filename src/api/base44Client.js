@@ -17,6 +17,7 @@ import { LessonSlot } from '@/entities/LessonSlot';
 import { LessonAvailability } from '@/entities/LessonAvailability';
 import { LessonBooking } from '@/entities/LessonBooking';
 import { LessonCredit } from '@/entities/LessonCredit';
+import { LessonBlock } from '@/entities/LessonBlock';
 import { User } from '@/entities/User';
 import { SendEmail } from '@/integrations/Core';
 
@@ -56,6 +57,7 @@ export const base44 = {
     LessonAvailability,
     LessonBooking,
     LessonCredit,
+    LessonBlock,
     User
   },
   functions: { invoke },
