@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/lib/supabaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -149,13 +150,24 @@ export default function MemberBookings() {
       }
       setMembership(active);
 
-      const [regularBookings, memBookings] = await Promise.all([
-        base44.entities.Booking.list(),
+      // Availability needs EVERY customer's and member's busy ranges, but RLS
+      // only lets this member read their own rows in bookings/member_bookings —
+      // so another person's reservation looked free and the server rejected the
+      // overlap after the fact. bay_busy_times (SECURITY DEFINER) returns just
+      // the busy time ranges across both tables, no personal details.
+      const busyFrom = format(new Date(), "yyyy-MM-dd");
+      const busyHorizon = new Date();
+      busyHorizon.setDate(busyHorizon.getDate() + 365);
+      const busyTo = format(busyHorizon, "yyyy-MM-dd");
+      const [busyRes, memBookings] = await Promise.all([
+        supabase.rpc("bay_busy_times", { p_from: busyFrom, p_to: busyTo }),
         // Shared pool: usage is tracked per membership_id (covers corporate
-        // multi-seat too), NOT per member email.
+        // multi-seat too), NOT per member email. This is the member's OWN
+        // member_bookings, used for hour/guest-pass usage and the upcoming list.
         base44.entities.MemberBooking.filter({ membership_id: active.id })
       ]);
-      setAllBookings(regularBookings);
+      if (busyRes.error) throw busyRes.error;
+      setAllBookings(busyRes.data || []);
       setMemberBookings(memBookings);
 
       // Default the booking club to the member's home location the first time;

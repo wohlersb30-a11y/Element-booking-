@@ -406,12 +406,14 @@ export default function BookSimulator() {
 
       const [bays, bookingsRes, specials, activeClosures, blocksRes] = await Promise.all([
         base44.entities.Simulator.list(),
-        supabase
-          .from("bookings")
-          .select("*")
-          .gte("booking_date", todayStr)
-          .lte("booking_date", horizonStr)
-          .limit(10000),
+        // Availability must reflect EVERYONE's reservations, but RLS only lets a
+        // signed-in customer read their OWN rows in bookings/member_bookings — so
+        // a bay taken by another customer looked free, the customer was sent to
+        // pay, and the server then rejected the overlap ("charged then booted").
+        // bay_busy_times is a SECURITY DEFINER function returning just the busy
+        // time ranges (no names/emails/cost) across both booking tables, giving
+        // the customer UI the same view the server uses to finalize.
+        supabase.rpc("bay_busy_times", { p_from: todayStr, p_to: horizonStr }),
         base44.entities.Special.list().catch(() => []),
         base44.entities.TeeSheetClosure.filter({ is_active: true }).catch(() => []),
         supabase
@@ -616,10 +618,9 @@ export default function BookSimulator() {
       // server re-check stays as the final backstop for the sub-second race.
       try {
         const [freshBookingsRes, freshBlocksRes] = await Promise.all([
-          supabase
-            .from("bookings")
-            .select("id, simulator_id, booking_date, start_time, end_time, status")
-            .eq("booking_date", formattedDate),
+          // Fresh busy ranges across ALL customers (see loadData note) for this
+          // date — RLS-blind to others' rows if we read `bookings` directly.
+          supabase.rpc("bay_busy_times", { p_from: formattedDate, p_to: formattedDate }),
           supabase
             .from("schedule_blocks")
             .select("id, simulator_id, block_date, start_time, end_time")
