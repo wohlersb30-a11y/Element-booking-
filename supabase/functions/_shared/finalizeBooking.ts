@@ -131,6 +131,15 @@ export async function finalizeBookingFromSession(
     .from('bookings')
     .select('*')
     .eq('booking_date', bookingData.date);
+  // Member bookings hold a bay too, but live in a SEPARATE table that the
+  // bookings_no_overlap exclusion constraint does not cover. Without this check
+  // a regular booking could be created on top of a member's reservation (the
+  // member side already cross-checks the regular table in finalizeMemberBooking).
+  const { data: memberDay } = await db
+    .from('member_bookings')
+    .select('simulator_id,start_time,end_time,status')
+    .eq('booking_date', bookingData.date)
+    .neq('status', 'cancelled');
   const { data: dayBlocks } = await db
     .from('schedule_blocks')
     .select('*')
@@ -139,11 +148,16 @@ export async function finalizeBookingFromSession(
   const conflicts: string[] = [];
   const blocked: string[] = [];
   for (const bayInfo of bookingData.selectedBays) {
-    const overlap = (sameDay || []).some((b: any) => {
-      if (b.simulator_id !== bayInfo.bayId) return false;
-      if (b.status === 'cancelled') return false;
-      return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
-    });
+    const overlap =
+      (sameDay || []).some((b: any) => {
+        if (b.simulator_id !== bayInfo.bayId) return false;
+        if (b.status === 'cancelled') return false;
+        return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
+      }) ||
+      (memberDay || []).some((b: any) => {
+        if (b.simulator_id !== bayInfo.bayId) return false;
+        return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
+      });
     if (overlap) {
       conflicts.push(bayInfo.bayName);
       continue;
