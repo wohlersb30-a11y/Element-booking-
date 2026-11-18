@@ -116,6 +116,11 @@ const AuthenticatedApp = () => {
     return (
       <Routes>
         <Route path="/LessonSchedule" element={<LessonSchedulePro />} />
+        {/* Password reset MUST stay reachable here. The reset email signs the
+            pro in with a short-lived recovery session, which makes this branch
+            active; without this route the wildcard below would bounce him to
+            /LessonSchedule before he could set a new password. */}
+        <Route path="/ResetPassword" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/LessonSchedule" replace />} />
       </Routes>
     );
