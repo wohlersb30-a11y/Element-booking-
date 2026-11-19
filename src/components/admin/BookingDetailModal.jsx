@@ -6,8 +6,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { X, Calendar, Clock, MapPin, Users, Phone, Mail, MessageSquare, CreditCard, DollarSign, Loader2, Flag, Crown } from "lucide-react";
+import { X, Calendar, Clock, MapPin, Users, Phone, Mail, MessageSquare, CreditCard, DollarSign, Loader2, Flag, Crown, Repeat } from "lucide-react";
 import { format } from "date-fns";
+
+// Day-of-week (0=Sun..6=Sat) for a 'yyyy-MM-dd' string, parsed in local time so
+// there's no UTC date shift.
+const weekdayOf = (ymd) => {
+  const [y, m, d] = String(ymd || "").split("-").map(Number);
+  if (!y || !m || !d) return -1;
+  return new Date(y, m - 1, d).getDay();
+};
+
+// Whole days between two 'yyyy-MM-dd' strings.
+const dayDiff = (a, b) => {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
+};
 
 import CheckInSystem from "./CheckInSystem";
 import { Textarea } from "@/components/ui/textarea";
@@ -90,6 +105,13 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   const [adjError, setAdjError] = useState("");
   const [adjDone, setAdjDone] = useState("");
 
+  // Recurring-series detection. Recurring reservations are stored as separate,
+  // unlinked rows, so we group them on the fly: same customer email, bay, start
+  // time, weekday and location. `applyScope` lets staff push an edit to just
+  // this reservation or to this one and every future occurrence in the series.
+  const [series, setSeries] = useState([]); // non-cancelled siblings incl. this one
+  const [applyScope, setApplyScope] = useState("single"); // 'single' | 'future'
+
   useEffect(() => {
     if (!isBanked || !booking.customer_email) return;
     let cancelled = false;
@@ -161,6 +183,89 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
     setIsAdjusting(false);
   };
 
+  useEffect(() => {
+    // Member_bookings rows (origin members) aren't editable here, and we need a
+    // customer + bay + time to group a series.
+    if (booking.booking_type === "member" || booking.is_member) return;
+    if (!booking.customer_email || !booking.simulator_id || !booking.start_time) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await Booking.filter({
+          customer_email: booking.customer_email,
+          simulator_id: booking.simulator_id,
+          start_time: booking.start_time
+        });
+        if (cancelled) return;
+        const dow = weekdayOf(booking.booking_date);
+        const sibs = (rows || []).filter(
+          (r) =>
+            r.status !== "cancelled" &&
+            r.location === booking.location &&
+            weekdayOf(r.booking_date) === dow
+        );
+        setSeries(sibs);
+      } catch {
+        if (!cancelled) setSeries([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [booking.id, booking.customer_email, booking.simulator_id, booking.start_time, booking.booking_date, booking.location]);
+
+  // Derived series facts. futureSiblings always includes this reservation.
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const futureSiblings = series
+    .filter((r) => r.booking_date >= booking.booking_date)
+    .sort((a, b) => a.booking_date.localeCompare(b.booking_date));
+  const upcomingCount = futureSiblings.filter((r) => r.booking_date >= todayStr).length;
+  const isRecurring = series.length >= 2;
+  const seriesWeekday = booking.booking_date
+    ? format(new Date(`${booking.booking_date}T00:00:00`), "EEEE")
+    : "";
+  const seriesFrequency = (() => {
+    const dates = [...new Set(series.map((r) => r.booking_date))].sort();
+    let gap = null;
+    for (let i = 1; i < dates.length; i++) {
+      const g = dayDiff(dates[i - 1], dates[i]);
+      if (gap == null || g < gap) gap = g;
+    }
+    if (gap == null) return "Recurring";
+    if (gap <= 7) return "Weekly";
+    if (gap <= 14) return "Every 2 weeks";
+    return "Recurring";
+  })();
+
+  // Apply a field patch to this reservation + every future occurrence. The
+  // bookings no-overlap constraint rejects any occurrence whose new time/bay
+  // would collide; we skip those and report the dates.
+  const applyToFutureSeries = async (patchFn) => {
+    let ok = 0;
+    const failed = [];
+    for (const r of futureSiblings) {
+      try {
+        await Booking.update(r.id, patchFn(r));
+        ok += 1;
+      } catch (e) {
+        failed.push(r.booking_date);
+      }
+    }
+    return { ok, failed };
+  };
+
+  const seriesResultMsg = (verb, { ok, failed }) => {
+    let msg = `${verb} ${ok} reservation${ok === 1 ? "" : "s"} in the series.`;
+    if (failed.length) {
+      msg += `\n\nSkipped ${failed.length} due to a conflict on that date:\n${failed
+        .map((d) => format(new Date(`${d}T00:00:00`), "EEE, MMM d"))
+        .join(", ")}`;
+    }
+    return msg;
+  };
+
+  const useFutureScope = isRecurring && applyScope === "future";
+
   // Operating hours for this booking's location, used to bound the editable
   // start-time / duration options and to validate the new window.
   const bookingHours = useLocationHours(booking.location);
@@ -195,30 +300,40 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
       alert("That time is outside this location's operating hours.");
       return;
     }
-    const conflict = (existingBookings || []).some((b) => {
-      if (b.id === booking.id) return false;
-      if (b.simulator_id !== booking.simulator_id) return false;
-      if (b.booking_date !== booking.booking_date) return false;
-      if (b.status === "cancelled") return false;
-      return newStartMin < toMinutes(b.end_time) && newEndMin > toMinutes(b.start_time);
-    });
-    if (conflict) {
-      alert("That time overlaps another reservation on this bay. Choose a different time or duration.");
-      return;
-    }
+    const priceNote =
+      Number(durationHours) !== Number(booking.duration_hours)
+        ? " Note: the price shown was not recalculated — adjust it under Payment if needed."
+        : "";
     setIsSavingTime(true);
     try {
+      if (useFutureScope) {
+        const res = await applyToFutureSeries(() => ({
+          start_time: startTime,
+          end_time: proposedEnd,
+          duration_hours: durationHours
+        }));
+        alert(seriesResultMsg("Updated the time on", res) + priceNote);
+        onClose();
+        return;
+      }
+      const conflict = (existingBookings || []).some((b) => {
+        if (b.id === booking.id) return false;
+        if (b.simulator_id !== booking.simulator_id) return false;
+        if (b.booking_date !== booking.booking_date) return false;
+        if (b.status === "cancelled") return false;
+        return newStartMin < toMinutes(b.end_time) && newEndMin > toMinutes(b.start_time);
+      });
+      if (conflict) {
+        alert("That time overlaps another reservation on this bay. Choose a different time or duration.");
+        setIsSavingTime(false);
+        return;
+      }
       await Booking.update(booking.id, {
         start_time: startTime,
         end_time: proposedEnd,
         duration_hours: durationHours
       });
-      alert(
-        "Reservation time updated." +
-          (Number(durationHours) !== Number(booking.duration_hours)
-            ? " Note: the price shown was not recalculated — adjust it under Payment if needed."
-            : "")
-      );
+      alert("Reservation time updated." + priceNote);
       onClose();
     } catch (error) {
       console.error("Error updating reservation time:", error);
@@ -298,29 +413,38 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   const handleMoveBay = async () => {
     if (!selectedNewBay || newBayId === booking.simulator_id) return;
 
-    // Conflict check on the target bay for this date/time (ignore self + cancelled).
-    const newStart = toMinutes(booking.start_time);
-    const newEnd = toMinutes(booking.end_time);
-    const conflict = (existingBookings || []).some((b) => {
-      if (b.id === booking.id) return false;
-      if (b.simulator_id !== newBayId) return false;
-      if (b.booking_date !== booking.booking_date) return false;
-      if (b.status === "cancelled") return false;
-      return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
-    });
-
-    if (conflict) {
-      alert(`${getBayDisplayName(selectedNewBay.name, selectedNewBay.location)} is already booked for this time. Choose another bay.`);
-      return;
-    }
-
+    const bayLabel = getBayDisplayName(selectedNewBay.name, selectedNewBay.location);
     setIsMoving(true);
     try {
+      if (useFutureScope) {
+        const res = await applyToFutureSeries(() => ({
+          simulator_id: selectedNewBay.id,
+          simulator_name: selectedNewBay.name
+        }));
+        alert(seriesResultMsg(`Moved to ${bayLabel} on`, res));
+        onClose();
+        return;
+      }
+      // Conflict check on the target bay for this date/time (ignore self + cancelled).
+      const newStart = toMinutes(booking.start_time);
+      const newEnd = toMinutes(booking.end_time);
+      const conflict = (existingBookings || []).some((b) => {
+        if (b.id === booking.id) return false;
+        if (b.simulator_id !== newBayId) return false;
+        if (b.booking_date !== booking.booking_date) return false;
+        if (b.status === "cancelled") return false;
+        return newStart < toMinutes(b.end_time) && newEnd > toMinutes(b.start_time);
+      });
+      if (conflict) {
+        alert(`${bayLabel} is already booked for this time. Choose another bay.`);
+        setIsMoving(false);
+        return;
+      }
       await Booking.update(booking.id, {
         simulator_id: selectedNewBay.id,
         simulator_name: selectedNewBay.name
       });
-      alert(`Reservation moved to ${getBayDisplayName(selectedNewBay.name, selectedNewBay.location)}.`);
+      alert(`Reservation moved to ${bayLabel}.`);
       onClose();
     } catch (error) {
       console.error("Error moving booking:", error);
@@ -354,6 +478,41 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   };
 
   const handleCancelBooking = async () => {
+    // Recurring series, "this & future" scope: cancel every upcoming occurrence.
+    if (useFutureScope) {
+      if (
+        !confirm(
+          `Cancel this reservation and all ${upcomingCount} upcoming occurrence${upcomingCount === 1 ? "" : "s"} in this recurring series?`
+        )
+      ) {
+        return;
+      }
+      setIsCancelling(true);
+      try {
+        let ok = 0;
+        for (const r of futureSiblings) {
+          try {
+            // Release a card hold where one exists; otherwise just flip status.
+            if (r.stripe_payment_id && r.payment_status !== "refunded") {
+              await base44.functions.invoke("cancelBooking", { bookingId: r.id });
+            } else {
+              await Booking.update(r.id, { status: "cancelled" });
+            }
+            ok += 1;
+          } catch (e) {
+            console.error("Series cancel failed for", r.booking_date, e);
+          }
+        }
+        alert(`Cancelled ${ok} reservation${ok === 1 ? "" : "s"} in the series.`);
+        onClose();
+      } catch (error) {
+        console.error("Error cancelling series:", error);
+        alert("Error cancelling the series. Some reservations may not have been cancelled.");
+      }
+      setIsCancelling(false);
+      return;
+    }
+
     const hasHold =
       booking.stripe_payment_id && booking.payment_status !== "refunded";
     const confirmMsg = hasHold
@@ -412,6 +571,56 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
             <h3 className="font-semibold text-lg mb-3">Check-In Status</h3>
             <CheckInSystem booking={booking} onUpdate={onClose} />
           </div>
+
+          {/* Recurring-series controls. Shown when this reservation repeats
+              (same customer, bay, time and weekday on other dates). The scope
+              choice drives the Time, Duration, Bay-move, and Cancel actions
+              below — so staff can edit the whole future series in one go. */}
+          {isRecurring && booking.status !== "cancelled" && (
+            <div className="p-4 bg-indigo-50 border-2 border-indigo-200 rounded-lg space-y-3">
+              <div className="flex items-center gap-2 text-indigo-900 font-semibold">
+                <Repeat className="w-5 h-5" />
+                Recurring reservation
+              </div>
+              <p className="text-sm text-indigo-800">
+                {seriesFrequency} on {seriesWeekday}s at {formatTime(booking.start_time)} ·{" "}
+                {upcomingCount} upcoming occurrence{upcomingCount === 1 ? "" : "s"}.
+              </p>
+              <div className="space-y-2">
+                <span className="text-sm font-medium text-slate-700">Apply my edits to:</span>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="apply-scope"
+                      className="w-4 h-4 accent-[#2d5567]"
+                      checked={applyScope === "single"}
+                      onChange={() => setApplyScope("single")}
+                    />
+                    <span className="text-sm text-slate-700">Just this reservation</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="apply-scope"
+                      className="w-4 h-4 accent-[#2d5567]"
+                      checked={applyScope === "future"}
+                      onChange={() => setApplyScope("future")}
+                    />
+                    <span className="text-sm text-slate-700">
+                      This &amp; all future ({upcomingCount})
+                    </span>
+                  </label>
+                </div>
+              </div>
+              {useFutureScope && (
+                <p className="text-xs text-indigo-700">
+                  Changes to time, duration, bay, or cancelling below will apply to this and
+                  every upcoming occurrence in the series.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Bay Info */}
           <div>
