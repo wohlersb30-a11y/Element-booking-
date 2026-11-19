@@ -50,16 +50,54 @@ export const RESERVATION_TYPE_OPTIONS = BOOKING_CATEGORIES.map((c) => ({
 }));
 
 // Classify a booking row into one of the category keys above. Order of
-// precedence: member rows merged into the schedule, then an explicit staff-
-// chosen reservation_type, then inference from the online booking fields.
-// Anything unlabeled falls back to "public".
+// precedence:
+//   1. A reservation that lives in the member_bookings table (merged in).
+//   2. An explicit, non-default staff choice (special / banked / member).
+//   3. A regular booking whose customer is on the membership roster (matched
+//      by email) — so a member shows as a member even when booked through the
+//      public flow and left on the default "public" type.
+//   4. Whatever reservation_type is set (incl. the "public" default), else public.
 export function classifyBooking(b) {
   if (!b) return "public";
   if (b.booking_type === "member" || b.is_member) return "member";
+  if (b.reservation_type === "special" || b.special_id) return "special";
+  if (b.reservation_type === "banked" || b.payment_method === "banked_hours" || b.is_banked) return "banked";
+  if (b.reservation_type === "member") return "member";
+  if (b.is_member_customer) return "member";
   if (b.reservation_type && BY_KEY[b.reservation_type]) return b.reservation_type;
-  if (b.special_id) return "special";
-  if (b.payment_method === "banked_hours" || b.is_banked) return "banked";
   return "public";
+}
+
+// Build a lookup of every email tied to an ACTIVE membership (the primary
+// user_email plus any authorized/family emails), lowercased, → the membership
+// row. Lets the tee sheet recognize a member's reservation even when it was
+// booked through the public flow and never tagged "member".
+export function buildMemberEmailMap(memberships = []) {
+  const map = new Map();
+  for (const m of memberships || []) {
+    if (!m) continue;
+    if (m.status && m.status !== "active") continue;
+    const emails = [m.user_email, ...(Array.isArray(m.authorized_emails) ? m.authorized_emails : [])];
+    for (const e of emails) {
+      const key = String(e || "").trim().toLowerCase();
+      if (key.includes("@")) map.set(key, m);
+    }
+  }
+  return map;
+}
+
+// Tag regular bookings whose customer email is on the membership roster so
+// classifyBooking() colors them as members. member_bookings rows (already
+// tagged) and non-members are returned untouched. Returns a new array.
+export function markMemberCustomers(bookings = [], memberEmailMap) {
+  if (!memberEmailMap || memberEmailMap.size === 0) return bookings;
+  return (bookings || []).map((b) => {
+    if (!b || b.booking_type === "member" || b.is_member) return b;
+    const key = String(b.customer_email || "").trim().toLowerCase();
+    const m = key ? memberEmailMap.get(key) : null;
+    if (!m) return b;
+    return { ...b, is_member_customer: true, member_level: m.membership_level || null };
+  });
 }
 
 export function categoryStyle(b) {

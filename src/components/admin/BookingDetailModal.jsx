@@ -5,7 +5,8 @@ import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { X, Calendar, Clock, MapPin, Users, Phone, Mail, MessageSquare, CreditCard, DollarSign, Loader2, Flag } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { X, Calendar, Clock, MapPin, Users, Phone, Mail, MessageSquare, CreditCard, DollarSign, Loader2, Flag, Crown } from "lucide-react";
 import { format } from "date-fns";
 
 import CheckInSystem from "./CheckInSystem";
@@ -67,10 +68,27 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
   // staff want to see how many hours that customer has left. We look up their
   // ledger balance (admin-only adminHourBalance fn) and show the combined pool
   // (peak / off-peak buckets) — hours redeem at either club.
-  const isBanked = classifyBooking(booking) === "banked";
+  const category = classifyBooking(booking);
+  const isBanked = category === "banked";
+  // A regular booking whose customer is on the membership roster (email match,
+  // tagged by the dashboards). Origin member_bookings rows open the usage popup
+  // instead, so here this only ever flags a public-flow booking by a member.
+  const isMemberCustomer = category === "member";
   const [bankedBalance, setBankedBalance] = useState(null);
   const [bankedLoading, setBankedLoading] = useState(false);
   const [bankedError, setBankedError] = useState("");
+  // Bumped after a successful adjustment to re-pull the balance.
+  const [balanceRefresh, setBalanceRefresh] = useState(0);
+
+  // Adjust-hours controls (add/remove this customer's banked hours right here,
+  // so staff don't have to go find them in the Hours admin).
+  const [adjKind, setAdjKind] = useState("off_peak");
+  const [adjHours, setAdjHours] = useState("");
+  const [adjNote, setAdjNote] = useState("");
+  const [adjSignature, setAdjSignature] = useState("");
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const [adjError, setAdjError] = useState("");
+  const [adjDone, setAdjDone] = useState("");
 
   useEffect(() => {
     if (!isBanked || !booking.customer_email) return;
@@ -99,7 +117,49 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
     return () => {
       cancelled = true;
     };
-  }, [isBanked, booking.customer_email, booking.location]);
+  }, [isBanked, booking.customer_email, booking.location, balanceRefresh]);
+
+  const handleAdjustHours = async () => {
+    setAdjError("");
+    setAdjDone("");
+    const hours = Number(adjHours);
+    if (!hours) {
+      setAdjError("Enter a non-zero number of hours (use a negative number to remove).");
+      return;
+    }
+    if (!adjSignature.trim()) {
+      setAdjError("An employee signature is required to add or remove hours.");
+      return;
+    }
+    setIsAdjusting(true);
+    try {
+      const res = await base44.functions.invoke("adminHourBalance", {
+        action: "adjust",
+        email: booking.customer_email,
+        kind: adjKind,
+        hours,
+        location: booking.location,
+        note: adjNote,
+        signature: adjSignature.trim()
+      });
+      const d = res?.data || {};
+      if (d.success) {
+        if (d.total) setBankedBalance(d.total);
+        setAdjHours("");
+        setAdjNote("");
+        setAdjSignature("");
+        setAdjDone(
+          `${hours > 0 ? "Added" : "Removed"} ${Math.abs(hours)} ${adjKind === "peak" ? "peak" : "off-peak"} hour${Math.abs(hours) === 1 ? "" : "s"}.`
+        );
+        setBalanceRefresh((n) => n + 1);
+      } else {
+        setAdjError(d.error || "Adjustment failed.");
+      }
+    } catch (err) {
+      setAdjError("Adjustment failed. Please try again.");
+    }
+    setIsAdjusting(false);
+  };
 
   // Operating hours for this booking's location, used to bound the editable
   // start-time / duration options and to validate the new window.
@@ -578,6 +638,76 @@ export default function BookingDetailModal({ booking, onClose, simulators = [], 
                   <p className="text-sm text-slate-600">No hour balance on file for this customer.</p>
                 )}
               </div>
+
+              {/* Add / remove this customer's banked hours without leaving the
+                  tee sheet. Mirrors the Hours admin: negative hours remove, and
+                  an employee signature is required and recorded. */}
+              <div className="mt-3 p-4 bg-white border border-green-200 rounded-lg space-y-3">
+                <p className="text-sm font-semibold text-slate-700">Adjust hours</p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-slate-500 mb-1">Bucket</span>
+                    <Select value={adjKind} onValueChange={setAdjKind}>
+                      <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off_peak">Off-peak</SelectItem>
+                        <SelectItem value="peak">Peak</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-slate-500 mb-1">Hours (− to remove)</span>
+                    <Input
+                      type="number"
+                      step="0.5"
+                      value={adjHours}
+                      onChange={(e) => setAdjHours(e.target.value)}
+                      placeholder="e.g. 2 or -1"
+                      className="w-32"
+                    />
+                  </div>
+                </div>
+                <Input
+                  value={adjNote}
+                  onChange={(e) => setAdjNote(e.target.value)}
+                  placeholder="Note (optional) — e.g. comped, correction"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs text-slate-500 mb-1">
+                    Employee signature <span className="text-red-500">*</span>
+                  </span>
+                  <Input
+                    value={adjSignature}
+                    onChange={(e) => setAdjSignature(e.target.value)}
+                    placeholder="Your name"
+                  />
+                </div>
+                {adjError && <p className="text-sm text-red-600">{adjError}</p>}
+                {adjDone && <p className="text-sm text-green-700">{adjDone}</p>}
+                <Button
+                  size="sm"
+                  onClick={handleAdjustHours}
+                  disabled={isAdjusting}
+                  className="bg-[#2d5567] hover:bg-[#1e3a47]"
+                >
+                  {isAdjusting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply adjustment"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Member badge — shown when this reservation's customer is on the
+              membership roster (matched by email) even though it was booked
+              through the public flow. The actual member_bookings rows open the
+              usage popup instead, so this only appears for those public-flow
+              bookings by a member. */}
+          {isMemberCustomer && (
+            <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg flex items-center gap-2">
+              <Crown className="w-5 h-5 text-purple-600" />
+              <span className="text-sm text-purple-900 font-semibold">
+                Member{booking.member_level ? ` · ${booking.member_level}` : ""}
+              </span>
+              <span className="text-xs text-purple-700">— on the membership roster</span>
             </div>
           )}
 

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { Booking, Simulator, User, ScheduleBlock } from "@/entities/all";
 import { base44 } from "@/api/base44Client";
-import { normalizeMemberBooking } from "@/lib/bookingCategories";
+import { normalizeMemberBooking, buildMemberEmailMap, markMemberCustomers } from "@/lib/bookingCategories";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Plus, Loader2, Users, DollarSign, Ban, DollarSignIcon, BarChart3, Tag, Sparkles, GraduationCap } from "lucide-react";
@@ -121,14 +121,21 @@ export default function AdminDashboardVadnaisHeights() {
       // client hit PostgREST's default 1000-row cap once schedule_blocks grew,
       // so newly created blocks intermittently failed to appear. Degrade
       // gracefully: one failing query shouldn't blank the whole schedule.
-      const [allBookings, allBlocks, allMemberBookings] = await Promise.all([
+      const [allBookings, allBlocks, allMemberBookings, allMemberships] = await Promise.all([
         Booking.filter({ booking_date: formattedDate }).catch(() => []),
         ScheduleBlock.filter({ block_date: formattedDate }).catch(() => []),
-        base44.entities.MemberBooking.filter({ booking_date: formattedDate }).catch(() => [])
+        base44.entities.MemberBooking.filter({ booking_date: formattedDate }).catch(() => []),
+        base44.entities.Membership.filter({ status: "active" }).catch(() => [])
       ]);
 
-      const dateBookings = allBookings.filter(
-        b => b.booking_date === formattedDate && b.status !== "cancelled" && b.location === "vadnais_heights"
+      // Recognize members by email so their public-flow bookings still show as
+      // members on the tee sheet (purple + crown), not blue.
+      const memberEmailMap = buildMemberEmailMap(allMemberships);
+      const dateBookings = markMemberCustomers(
+        allBookings.filter(
+          b => b.booking_date === formattedDate && b.status !== "cancelled" && b.location === "vadnais_heights"
+        ),
+        memberEmailMap
       );
       const dateMemberBookings = (allMemberBookings || [])
         .filter(b => b.booking_date === formattedDate && b.status !== "cancelled" && b.location === "vadnais_heights")

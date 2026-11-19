@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Lock, Crown, Tag, Flag } from "lucide-react";
 import { Booking } from "@/entities/Booking";
-import { BOOKING_CATEGORIES, categoryStyle } from "@/lib/bookingCategories";
+import { BOOKING_CATEGORIES, categoryStyle, classifyBooking } from "@/lib/bookingCategories";
 import { useLocationHours, toMinutes, closeTimeForDate } from "@/config/hours";
 import { getBayDisplayName } from "@/lib/bayNames";
 import MemberUsageModal from "./MemberUsageModal";
@@ -625,7 +625,12 @@ export default function DailyScheduleView({
                                       const { first, last } = getFirstAndLastName(booking.customer_name || "");
                                       const dropId = `bay-${bay.id}-slot-${halfSlot}`;
                                       const cat = categoryStyle(booking);
+                                      // Origin member = a row from the member_bookings table (drives the
+                                      // static block + usage popup). Member category also covers a regular
+                                      // booking whose customer is on the membership roster (email match) —
+                                      // those still color purple + show the crown.
                                       const isMember = booking.booking_type === 'member' || booking.is_member;
+                                      const isMemberCat = classifyBooking(booking) === 'member';
                                       // An admin can leave an internal note on a reservation
                                       // (staff_notes, edited in BookingDetailModal). When one
                                       // exists we flag the block so staff know to open it and
@@ -660,7 +665,7 @@ export default function DailyScheduleView({
                                           className={`absolute inset-0 ${cat.block} p-2 overflow-hidden flex flex-col justify-center transition-colors border-l-4 ${booking.bay_locked ? 'border-emerald-600' : cat.border}`}
                                           {...noteHandlers}
                                         >
-                                          {isMember ? (
+                                          {isMemberCat ? (
                                             <div className="absolute top-1 right-1 opacity-90" title="Member reservation">
                                               <Crown className="w-3 h-3" />
                                             </div>
@@ -679,7 +684,11 @@ export default function DailyScheduleView({
                                             <span className="truncate">{first} {last}</span>
                                           </div>
                                           <div className="text-[10px] opacity-80 truncate">
-                                            {isMember ? (booking.is_prime ? 'Prime member' : 'Included') : booking.customer_phone}
+                                            {isMember
+                                              ? (booking.is_prime ? 'Prime member' : 'Included')
+                                              : isMemberCat
+                                                ? `Member${booking.member_level ? ` · ${booking.member_level}` : ''}`
+                                                : booking.customer_phone}
                                           </div>
                                           {isMember && booking.guest_charge_due && (
                                             <div className="text-[9px] font-bold text-rose-100 truncate">
